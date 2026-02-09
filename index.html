@@ -121,6 +121,7 @@
             const [activeTab, setActiveTab] = useState('home');
             const [error, setError] = useState(null);
             
+            // View States
             const [currentLedgerMonth, setCurrentLedgerMonth] = useState(getLocalMonth());
             const [analysisMode, setAnalysisMode] = useState('month'); 
             const [analysisType, setAnalysisType] = useState('expense');
@@ -137,6 +138,7 @@
             const dbRef = useRef(null);
             const appId = 'my-cloud-ledger-pro';
 
+            // Data States
             const [transactions, setTransactions] = useState([]);
             const [accounts, setAccounts] = useState([]);
             const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
@@ -148,6 +150,7 @@
             const [currentBook, setCurrentBook] = useState({ id: 'main', name: '日常帳本', currency: 'TWD' }); 
             const [books, setBooks] = useState([]);
 
+            // Modal States
             const [isTxModalOpen, setIsTxModalOpen] = useState(false);
             const [isAccModalOpen, setIsAccModalOpen] = useState(false);
             const [isRecModalOpen, setIsRecModalOpen] = useState(false);
@@ -160,6 +163,7 @@
             const [isBookModalOpen, setIsBookModalOpen] = useState(false);
             const [isBookSelectOpen, setIsBookSelectOpen] = useState(false);
 
+            // Form States
             const [targetMarketAccount, setTargetMarketAccount] = useState(null);
             const [newMarketValue, setNewMarketValue] = useState('');
             const [settleTargetTx, setSettleTargetTx] = useState(null);
@@ -176,7 +180,7 @@
             const [bookForm, setBookForm] = useState({ name: '', currency: 'TWD', startDate: '', endDate: '' });
             const [recForm, setRecForm] = useState({ name: '', type: 'expense', amount: '', category: '', accountId: '', toAccountId: '', day: new Date().getDate() });
 
-            // --- Initialization ---
+            // --- Initialization Logic ---
             useEffect(() => {
                 const initFirebase = () => {
                     if (window.isFirebaseSDKReady && window.FirebaseSDK) {
@@ -186,7 +190,9 @@
                                 config = JSON.parse(window.__firebase_config);
                             } else {
                                 const localConfig = localStorage.getItem('my_ledger_firebase_config');
-                                if (localConfig) config = JSON.parse(localConfig);
+                                if (localConfig) {
+                                    config = JSON.parse(localConfig);
+                                }
                             }
 
                             if (config) {
@@ -197,7 +203,7 @@
                                     dbRef.current = window.FirebaseSDK.getFirestore(app);
                                     setSdkReady(true);
                                 } catch(initErr) {
-                                    console.error("Init Error", initErr);
+                                    console.error("Firebase Init Failed:", initErr);
                                     setNeedConfig(true); 
                                     setLoading(false);
                                 }
@@ -206,6 +212,7 @@
                                 setLoading(false);
                             }
                         } catch (e) {
+                            console.error("Firebase Setup Error:", e);
                             setNeedConfig(true);
                             setLoading(false);
                         }
@@ -224,16 +231,13 @@
                          if (firstBrace !== -1) cleanedInput = cleanedInput.substring(firstBrace);
                     }
                     if (cleanedInput.endsWith(";")) cleanedInput = cleanedInput.slice(0, -1).trim();
-                    cleanedInput = cleanedInput.replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":');
-                    cleanedInput = cleanedInput.replace(/,\s*}/g, '}');
-                    cleanedInput = cleanedInput.replace(/,\s*]/g, ']');
 
                     const config = JSON.parse(cleanedInput);
-                    if (!config.apiKey || !config.projectId) throw new Error("缺少必要欄位");
+                    if (!config.apiKey || !config.projectId) throw new Error("設定缺少必要欄位 (apiKey 或 projectId)");
                     localStorage.setItem('my_ledger_firebase_config', JSON.stringify(config));
                     window.location.reload();
                 } catch (e) {
-                    setError({ title: "設定無效", message: "請確認您複製的是 JSON 格式。" });
+                    setError({ title: "設定無效", message: "請確認您複製的是 JSON 格式。\n\n錯誤訊息：" + e.message });
                 }
             };
             
@@ -242,31 +246,36 @@
                 window.location.reload();
             };
 
-            // Watchdog
+            // Timeout Watchdog
             useEffect(() => {
                 const timer = setTimeout(() => {
                     if (loading && !needConfig) {
                         setLoading(false);
                         setError({
-                            title: "連線逾時",
-                            message: "系統連線過久，可能是：\n1. 未開啟「匿名登入」。\n2. 網域未授權 (Github Pages 需加入 Authorized domains)。\n3. API Key 錯誤。"
+                            title: "連線逾時 (Connection Timeout)",
+                            message: "系統連線過久，可能是因為：\n1. 您尚未在 Firebase Console 開啟「Authentication > 匿名登入 (Anonymous)」。\n2. 您的網路環境阻擋了 Google 連線。\n3. API Key 設定有誤。\n\n請檢查後重新整理頁面，或點擊下方按鈕重設。"
                         });
                     }
                 }, 15000); 
                 return () => clearTimeout(timer);
             }, [loading, needConfig]);
 
-            // Auth
+            // Auth Listener
             useEffect(() => {
                 if (!sdkReady) return;
                 const auth = authRef.current;
                 const unsub = fbRef.current.onAuthStateChanged(auth, async (u) => {
-                    if (u) setUser(u);
-                    else {
-                        try { await fbRef.current.signInAnonymously(auth); } 
-                        catch (e) { 
+                    if (u) {
+                        setUser(u);
+                    } else {
+                        try {
+                            await fbRef.current.signInAnonymously(auth);
+                        } catch (e) {
+                            console.error("Auth Error:", e);
                             let msg = e.message;
-                            if (e.code === 'auth/admin-restricted-operation' || e.code === 'auth/operation-not-allowed') msg = "請至 Firebase Console 開啟「匿名登入 (Anonymous)」功能。";
+                            if (e.code === 'auth/admin-restricted-operation' || e.code === 'auth/operation-not-allowed') {
+                                msg = "偵測到您尚未開啟「匿名登入」功能。\n\n請前往 Firebase Console > Authentication > Sign-in method，將「Anonymous」設為啟用。";
+                            }
                             setError({ title: "登入失敗", message: msg });
                             setLoading(false); 
                         }
@@ -275,21 +284,28 @@
                 return () => unsub();
             }, [sdkReady]);
             
+            // Google Login Handler
             const handleGoogleLogin = async () => {
-                try { await fbRef.current.signInWithPopup(authRef.current, new fbRef.current.GoogleAuthProvider()); } 
-                catch (e) {
+                try {
+                    await fbRef.current.signInWithPopup(authRef.current, new fbRef.current.GoogleAuthProvider());
+                } catch (e) {
                     let msg = e.message;
-                    if (e.code === 'auth/unauthorized-domain') msg = `請將 ${window.location.hostname} 加入 Firebase Console > Authentication > Settings > Authorized domains`;
-                    setError({ title: "登入錯誤", message: msg });
+                    let title = "登入錯誤";
+                    if (e.code === 'auth/unauthorized-domain') {
+                        title = "網域未授權";
+                        msg = `Google 登入不支援直接開啟檔案 (file://) 或未授權的網域。\n\n若您希望使用 Google 登入同步資料，請將此檔案上傳至 GitHub Pages 或其他網頁空間，並將網域加入 Firebase Console。`;
+                    } else if (e.code === 'auth/popup-closed-by-user') {
+                        msg = "登入視窗已關閉";
+                    }
+                    setError({ title, message: msg });
                 }
             };
 
-            // Data & Logic (CheckAutoPayment MOVED INSIDE EFFECT)
+            // --- Data Subscriptions & Logic ---
             useEffect(() => {
                 if (!user || !sdkReady) return;
                 const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
                 
-                // Helper defined inside effect to avoid scope/definition issues
                 const runAutoPaymentCheck = async (accountsList) => {
                     const currentMonthStr = getLocalMonth();
                     const creditCards = accountsList.filter(a => a.type === 'credit' && a.autoPayment && a.autoPaymentAccount);
@@ -306,26 +322,36 @@
                         if (today.getDate() >= dueDay) {
                             const newTxRef = fbRef.current.doc(txCol);
                             batch.set(newTxRef, {
-                                type: 'transfer', amount: 0, category: '自動繳款',
-                                accountId: card.autoPaymentAccount, toAccountId: card.id,
-                                date: getLocalToday(), bookId: 'main', 
-                                note: `[系統] 信用卡費繳款 (${card.name})`, createdAt: new Date().toISOString()
+                                type: 'transfer', 
+                                amount: 0, 
+                                category: '自動繳款',
+                                accountId: card.autoPaymentAccount, 
+                                toAccountId: card.id,
+                                date: getLocalToday(), 
+                                bookId: 'main', 
+                                note: `[系統] 信用卡費繳款 (${card.name})`, 
+                                createdAt: new Date().toISOString()
                             });
+                            
                             const cardRef = fbRef.current.doc(userRef, 'accounts', card.id);
                             batch.update(cardRef, { lastAutoPaymentMonth: currentMonthStr });
                             hasUpdates = true;
                         }
                     });
+                    
                     if (hasUpdates) await batch.commit();
                 };
 
                 const unsubs = [
-                    fbRef.current.onSnapshot(fbRef.current.collection(userRef, 'transactions'), snap => setTransactions(snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => new Date(b.date)-new Date(a.date)))),
+                    fbRef.current.onSnapshot(fbRef.current.collection(userRef, 'transactions'), snap => 
+                        setTransactions(snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => new Date(b.date)-new Date(a.date)))),
+                    
                     fbRef.current.onSnapshot(fbRef.current.collection(userRef, 'accounts'), snap => {
                         const accs = snap.docs.map(d => ({id: d.id, ...d.data()}));
                         setAccounts(accs);
                         runAutoPaymentCheck(accs);
                     }),
+                    
                     fbRef.current.onSnapshot(fbRef.current.doc(userRef, 'settings', 'config'), doc => {
                         if (doc.exists()) {
                             const data = doc.data().categories;
@@ -338,28 +364,97 @@
                             if (doc.data().budget) setMonthlyBudget(doc.data().budget);
                         } else fbRef.current.setDoc(fbRef.current.doc(userRef, 'settings', 'config'), { categories: DEFAULT_CATEGORIES }, {merge: true});
                     }),
-                    fbRef.current.onSnapshot(fbRef.current.doc(userRef, 'settings', 'rates'), doc => { if (doc.exists()) setExchangeRates(doc.data()); else fbRef.current.setDoc(fbRef.current.doc(userRef, 'settings', 'rates'), DEFAULT_RATES, {merge: true}); }),
-                    fbRef.current.onSnapshot(fbRef.current.doc(userRef, 'settings', 'retirement'), doc => { if (doc.exists()) setRetirement(doc.data()); else fbRef.current.setDoc(fbRef.current.doc(userRef, 'settings', 'retirement'), retirement, {merge: true}); }),
-                    fbRef.current.onSnapshot(fbRef.current.collection(userRef, 'recurring'), snap => setRecurring(snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => (a.day || 0) - (b.day || 0)))),
-                    fbRef.current.onSnapshot(fbRef.current.collection(userRef, 'books'), snap => { const loadedBooks = snap.docs.map(d => ({id: d.id, ...d.data()})); setBooks([{ id: 'main', name: '日常帳本', currency: 'TWD' }, ...loadedBooks]); })
+
+                    fbRef.current.onSnapshot(fbRef.current.doc(userRef, 'settings', 'rates'), doc => {
+                        if (doc.exists()) setExchangeRates(doc.data());
+                        else fbRef.current.setDoc(fbRef.current.doc(userRef, 'settings', 'rates'), DEFAULT_RATES, {merge: true});
+                    }),
+
+                    fbRef.current.onSnapshot(fbRef.current.doc(userRef, 'settings', 'retirement'), doc => {
+                        if (doc.exists()) setRetirement(doc.data());
+                        else fbRef.current.setDoc(fbRef.current.doc(userRef, 'settings', 'retirement'), retirement, {merge: true});
+                    }),
+
+                    fbRef.current.onSnapshot(fbRef.current.collection(userRef, 'recurring'), snap => 
+                        setRecurring(snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => (a.day || 0) - (b.day || 0)))),
+
+                    fbRef.current.onSnapshot(fbRef.current.collection(userRef, 'books'), snap => {
+                        const loadedBooks = snap.docs.map(d => ({id: d.id, ...d.data()}));
+                        setBooks([{ id: 'main', name: '日常帳本', currency: 'TWD' }, ...loadedBooks]);
+                    })
                 ];
+
                 setLoading(false);
                 return () => unsubs.forEach(unsub => unsub());
             }, [user, sdkReady]);
 
-            // UI Helpers
-            const getCategoryIcon = (catName, type) => { if (!categories[type]) return 'tag'; const cat = categories[type].find(c => c.name === catName); return cat ? cat.icon : 'tag'; };
-            const isCrossCurrencyTransfer = useMemo(() => { if (txForm.type !== 'transfer' || !txForm.accountId || !txForm.toAccountId) return false; const source = accounts.find(a => a.id === txForm.accountId); const dest = accounts.find(a => a.id === txForm.toAccountId); return source && dest && source.currency !== dest.currency; }, [txForm.type, txForm.accountId, txForm.toAccountId, accounts]);
-            const isCreditCardPayment = useMemo(() => { if (!txForm.accountId) return false; const acc = accounts.find(a => a.id === txForm.accountId); return acc && acc.type === 'credit' && txForm.type === 'expense'; }, [txForm.accountId, txForm.type, accounts]);
-            const changeMonth = (offset) => { const [year, month] = currentLedgerMonth.split('-').map(Number); const newDate = new Date(year, month - 1 + offset, 1); const newYear = newDate.getFullYear(); const newMonth = String(newDate.getMonth() + 1).padStart(2, '0'); setCurrentLedgerMonth(`${newYear}-${newMonth}`); };
-            const changeAnalysisDate = (offset) => { if (analysisMode === 'month') { const [year, month] = analysisDate.split('-').map(Number); const newDate = new Date(year, month - 1 + offset, 1); const newYear = newDate.getFullYear(); const newMonth = String(newDate.getMonth() + 1).padStart(2, '0'); setAnalysisDate(`${newYear}-${newMonth}`); } else if (analysisMode === 'year') { setAnalysisYear(String(parseInt(analysisYear) + offset)); } setSelectedCategory(null); };
-            const switchBook = (book) => { setCurrentBook(book); if (book.startDate) { setCurrentLedgerMonth(book.startDate.slice(0, 7)); setTxForm(prev => ({ ...prev, date: book.startDate })); } else { setCurrentLedgerMonth(getLocalMonth()); setTxForm(prev => ({ ...prev, date: getLocalToday() })); } setIsBookSelectOpen(false); };
+            // --- Logic & Calculations ---
+            const getCategoryIcon = (catName, type) => {
+                if (!categories[type]) return 'tag';
+                const cat = categories[type].find(c => c.name === catName);
+                return cat ? cat.icon : 'tag';
+            };
 
-            // Calculations
+            const isCrossCurrencyTransfer = useMemo(() => {
+                if (txForm.type !== 'transfer' || !txForm.accountId || !txForm.toAccountId) return false;
+                const source = accounts.find(a => a.id === txForm.accountId);
+                const dest = accounts.find(a => a.id === txForm.toAccountId);
+                return source && dest && source.currency !== dest.currency;
+            }, [txForm.type, txForm.accountId, txForm.toAccountId, accounts]);
+            
+            const isCreditCardPayment = useMemo(() => {
+                if (!txForm.accountId) return false;
+                const acc = accounts.find(a => a.id === txForm.accountId);
+                return acc && acc.type === 'credit' && txForm.type === 'expense';
+            }, [txForm.accountId, txForm.type, accounts]);
+
+            const changeMonth = (offset) => {
+                const [year, month] = currentLedgerMonth.split('-').map(Number);
+                const newDate = new Date(year, month - 1 + offset, 1);
+                const newYear = newDate.getFullYear();
+                const newMonth = String(newDate.getMonth() + 1).padStart(2, '0');
+                setCurrentLedgerMonth(`${newYear}-${newMonth}`);
+            };
+            
+            const changeAnalysisDate = (offset) => {
+                if (analysisMode === 'month') {
+                    const [year, month] = analysisDate.split('-').map(Number);
+                    const newDate = new Date(year, month - 1 + offset, 1);
+                    const newYear = newDate.getFullYear();
+                    const newMonth = String(newDate.getMonth() + 1).padStart(2, '0');
+                    setAnalysisDate(`${newYear}-${newMonth}`);
+                } else if (analysisMode === 'year') {
+                    setAnalysisYear(String(parseInt(analysisYear) + offset));
+                }
+                setSelectedCategory(null);
+            };
+
+            const switchBook = (book) => {
+                setCurrentBook(book);
+                if (book.startDate) {
+                    setCurrentLedgerMonth(book.startDate.slice(0, 7));
+                    setTxForm(prev => ({ ...prev, date: book.startDate }));
+                } else {
+                    setCurrentLedgerMonth(getLocalMonth());
+                    setTxForm(prev => ({ ...prev, date: getLocalToday() }));
+                }
+                setIsBookSelectOpen(false);
+            };
+
             const { accountBalances, stats, outstandingDebt, monthlyTransactions, bookStats } = useMemo(() => {
-                const bals = {}; accounts.forEach(acc => bals[acc.id] = parseFloat(acc.initialBalance) || 0);
-                let totalAsset = 0, monthIncome = 0, monthExpense = 0, outstanding = 0, bookTotalExpenseTWD = 0, bookTotalExpenseForeign = 0;
-                const targetMonth = currentLedgerMonth; const monthTx = []; const currentBookId = currentBook.id;
+                const bals = {};
+                accounts.forEach(acc => bals[acc.id] = parseFloat(acc.initialBalance) || 0);
+                
+                let totalAsset = 0; 
+                let monthIncome = 0; 
+                let monthExpense = 0;
+                let outstanding = 0;
+                let bookTotalExpenseTWD = 0;
+                let bookTotalExpenseForeign = 0;
+
+                const targetMonth = currentLedgerMonth; 
+                const monthTx = [];
+                const currentBookId = currentBook.id;
 
                 transactions.forEach(tx => {
                     const amt = parseFloat(tx.amount) || 0; 
@@ -370,29 +465,135 @@
                         const inAmt = tx.toAmount ? parseFloat(tx.toAmount) : amt;
                         if (bals[tx.toAccountId]!==undefined) bals[tx.toAccountId] += inAmt;
                     }
+
                     const txBookId = tx.bookId || 'main';
                     if (txBookId === currentBookId) {
                         const txMonth = tx.date.substring(0, 7);
                         if (txMonth === targetMonth || (currentBook.id !== 'main' && currentBook.startDate && tx.date >= currentBook.startDate && tx.date <= currentBook.endDate)) {
                             monthTx.push(tx); 
+                            
                             if (tx.type === 'income') monthIncome += amt;
                             if (tx.type === 'expense') {
                                 monthExpense += amt; 
-                                if (currentBook.currency !== 'TWD' && tx.currency === currentBook.currency) { bookTotalExpenseForeign += (tx.foreignAmount || 0); }
+                                if (currentBook.currency !== 'TWD' && tx.currency === currentBook.currency) {
+                                    bookTotalExpenseForeign += (tx.foreignAmount || 0);
+                                }
                                 bookTotalExpenseTWD += amt;
                             }
                         }
                         if (tx.type === 'advance' && !tx.isSettled) outstanding += amt;
                     }
                 });
-                accounts.forEach(acc => { if (acc.includeInTotal) { let val = 0; if (acc.type === 'invest' && acc.marketValue) val = parseFloat(acc.marketValue); else val = bals[acc.id] || 0; if (acc.currency !== 'TWD') { const rate = exchangeRates[acc.currency] || 1; val = val * rate; } totalAsset += val; } });
-                return { accountBalances: bals, stats: { totalAsset, monthIncome, monthExpense }, outstandingDebt: outstanding, monthlyTransactions: monthTx, bookStats: { twd: bookTotalExpenseTWD, foreign: bookTotalExpenseForeign } };
+
+                // Total Asset Calculation (with Market Value Logic)
+                accounts.forEach(acc => { 
+                    if (acc.includeInTotal) {
+                        let val = 0;
+                        if (acc.type === 'invest' && acc.marketValue) {
+                            val = parseFloat(acc.marketValue);
+                        } else {
+                            val = bals[acc.id] || 0;
+                        }
+
+                        if (acc.currency !== 'TWD') {
+                            const rate = exchangeRates[acc.currency] || 1;
+                            val = val * rate;
+                        }
+                        totalAsset += val;
+                    }
+                });
+
+                return { 
+                    accountBalances: bals, 
+                    stats: { totalAsset, monthIncome, monthExpense }, 
+                    outstandingDebt: outstanding, 
+                    monthlyTransactions: monthTx, 
+                    bookStats: { twd: bookTotalExpenseTWD, foreign: bookTotalExpenseForeign }
+                };
             }, [accounts, transactions, currentLedgerMonth, currentBook, exchangeRates]);
 
-            const retirementStats = useMemo(() => { const yearsToRetire = Math.max(0, retirement.retireAge - retirement.currentAge); const futureMonthly = retirement.monthlyExpense * Math.pow(1 + (retirement.inflation / 100), yearsToRetire); const targetAmount = futureMonthly * 12 * 25; const progress = Math.min(100, Math.max(0, (stats.totalAsset / targetAmount) * 100)); return { targetAmount, progress, yearsToRetire, futureMonthly }; }, [retirement, stats.totalAsset]);
-            const analysisData = useMemo(() => { const bookTxs = transactions.filter(tx => (tx.bookId || 'main') === currentBook.id); let filteredTx = []; if (analysisMode === 'month') { filteredTx = bookTxs.filter(t => t.date.substring(0, 7) === analysisDate); } else if (analysisMode === 'year') { filteredTx = bookTxs.filter(t => t.date.substring(0, 4) === analysisYear); } else { filteredTx = bookTxs.filter(t => t.date >= analysisRange.start && t.date <= analysisRange.end); } const expenseTx = filteredTx.filter(t => t.type === 'expense'); const totalExpense = expenseTx.reduce((sum, t) => sum + (parseFloat(t.amount)||0), 0); const expenseByCategory = {}; expenseTx.forEach(t => { const key = (analysisGroupBy === 'sub' && t.subCategory) ? t.subCategory : t.category; expenseByCategory[key] = (expenseByCategory[key] || 0) + parseFloat(t.amount); }); const expenseChartData = Object.entries(expenseByCategory).map(([name, value]) => ({ name, value, color: CATEGORY_COLORS[name] || CATEGORY_COLORS[Object.keys(categories.expense.find(c=>c.subs&&c.subs.includes(name))||{})[0]] || '#94a3b8', percent: totalExpense ? (value / totalExpense) * 100 : 0 })).sort((a,b) => b.value - a.value); const incomeTx = filteredTx.filter(t => t.type === 'income'); const totalIncome = incomeTx.reduce((sum, t) => sum + (parseFloat(t.amount)||0), 0); const incomeByCategory = {}; incomeTx.forEach(t => { const key = (analysisGroupBy === 'sub' && t.subCategory) ? t.subCategory : t.category; incomeByCategory[key] = (incomeByCategory[key] || 0) + parseFloat(t.amount); }); const incomeChartData = Object.entries(incomeByCategory).map(([name, value]) => ({ name, value, color: CATEGORY_COLORS[name] || '#94a3b8', percent: totalIncome ? (value / totalIncome) * 100 : 0 })).sort((a,b) => b.value - a.value); return { totalExpense, expenseChartData, totalIncome, incomeChartData, filteredTx }; }, [transactions, analysisMode, analysisDate, analysisYear, analysisRange, currentBook, analysisGroupBy, categories]);
-            const homeInsight = useMemo(() => { if (!currentLedgerMonth) return null; const savings = stats.monthIncome - stats.monthExpense; const diff = savings - (retirement.monthlyExpense || 0); const monthName = parseInt(currentLedgerMonth.split('-')[1]) + '月'; if (savings < 0) return { type: 'danger', icon: 'alert-triangle', text: `⚠️ ${monthName} 透支 $${Math.abs(savings).toLocaleString()}`, color: 'text-rose-600', bg: 'bg-rose-50 border-rose-200' }; if (monthlyBudget > 0 && stats.monthExpense > monthlyBudget) return { type: 'danger', icon: 'alert-triangle', text: `⚠️ 支出已超預算！`, color: 'text-rose-600', bg: 'bg-rose-50 border-rose-200' }; return { type: 'neutral', icon: 'info', text: `本月預算 $${monthlyBudget.toLocaleString()}，目前使用了 ${Math.round((stats.monthExpense/monthlyBudget)*100)}%`, color: 'text-slate-600', bg: 'bg-slate-50 border-slate-200' }; }, [stats, currentLedgerMonth, monthlyBudget]);
-            const retirementInsight = useMemo(() => { if (!currentLedgerMonth) return null; const savings = stats.monthIncome - stats.monthExpense; const target = retirement.monthlyExpense; if (savings < 0) return { icon: 'alert-triangle', text: `⚠️ 本月透支，資產縮水中！`, color: 'text-rose-600', bg: 'bg-rose-100' }; if (savings < target) return { icon: 'target', text: `🎯 離月存額目標還有差距，加油！`, color: 'text-amber-600', bg: 'bg-amber-100' }; return { icon: 'party-popper', text: `🚀 太棒了！儲蓄力超標！`, color: 'text-emerald-600', bg: 'bg-emerald-100' }; }, [stats, retirement, currentLedgerMonth]);
+            const retirementStats = useMemo(() => {
+                const yearsToRetire = Math.max(0, retirement.retireAge - retirement.currentAge);
+                const futureMonthly = retirement.monthlyExpense * Math.pow(1 + (retirement.inflation / 100), yearsToRetire);
+                const targetAmount = futureMonthly * 12 * 25;
+                const progress = Math.min(100, Math.max(0, (stats.totalAsset / targetAmount) * 100));
+                return { targetAmount, progress, yearsToRetire, futureMonthly };
+            }, [retirement, stats.totalAsset]);
+
+            const analysisData = useMemo(() => {
+                const bookTxs = transactions.filter(tx => (tx.bookId || 'main') === currentBook.id);
+                let filteredTx = [];
+                if (analysisMode === 'month') {
+                    filteredTx = bookTxs.filter(t => t.date.substring(0, 7) === analysisDate);
+                }
+                else if (analysisMode === 'year') {
+                    filteredTx = bookTxs.filter(t => t.date.substring(0, 4) === analysisYear);
+                }
+                else {
+                    filteredTx = bookTxs.filter(t => t.date >= analysisRange.start && t.date <= analysisRange.end);
+                }
+
+                const expenseTx = filteredTx.filter(t => t.type === 'expense');
+                const totalExpense = expenseTx.reduce((sum, t) => sum + (parseFloat(t.amount)||0), 0);
+                const expenseByCategory = {};
+                expenseTx.forEach(t => {
+                    const key = (analysisGroupBy === 'sub' && t.subCategory) ? t.subCategory : t.category;
+                    expenseByCategory[key] = (expenseByCategory[key] || 0) + parseFloat(t.amount);
+                });
+                const expenseChartData = Object.entries(expenseByCategory)
+                    .map(([name, value]) => ({ 
+                        name, value, 
+                        color: CATEGORY_COLORS[name] || CATEGORY_COLORS[Object.keys(categories.expense.find(c=>c.subs&&c.subs.includes(name))||{})[0]] || '#94a3b8', 
+                        percent: totalExpense ? (value / totalExpense) * 100 : 0 
+                    }))
+                    .sort((a,b) => b.value - a.value);
+
+                const incomeTx = filteredTx.filter(t => t.type === 'income');
+                const totalIncome = incomeTx.reduce((sum, t) => sum + (parseFloat(t.amount)||0), 0);
+                const incomeByCategory = {};
+                incomeTx.forEach(t => {
+                    const key = (analysisGroupBy === 'sub' && t.subCategory) ? t.subCategory : t.category;
+                    incomeByCategory[key] = (incomeByCategory[key] || 0) + parseFloat(t.amount);
+                });
+                const incomeChartData = Object.entries(incomeByCategory)
+                    .map(([name, value]) => ({ 
+                        name, value, 
+                        color: CATEGORY_COLORS[name] || '#94a3b8', 
+                        percent: totalIncome ? (value / totalIncome) * 100 : 0 
+                    }))
+                    .sort((a,b) => b.value - a.value);
+
+                return { totalExpense, expenseChartData, totalIncome, incomeChartData, filteredTx };
+            }, [transactions, analysisMode, analysisDate, analysisYear, analysisRange, currentBook, analysisGroupBy, categories]);
+
+            const homeInsight = useMemo(() => {
+                if (!currentLedgerMonth) return null;
+                const [curY, curM] = currentLedgerMonth.split('-').map(Number);
+                const prevDate = new Date(curY, curM - 2, 1);
+                const prevMonthStr = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+                
+                const calcExpense = (monthStr) => transactions.reduce((sum, tx) => {
+                    if (tx.date.startsWith(monthStr) && tx.type === 'expense' && (tx.bookId === 'main' || !tx.bookId)) return sum + (parseFloat(tx.amount) || 0);
+                    return sum;
+                }, 0);
+
+                const prevMonthExpense = calcExpense(prevMonthStr);
+                const currentMonthExpense = calcExpense(currentLedgerMonth);
+
+                if (monthlyBudget > 0 && currentMonthExpense > monthlyBudget) return { type: 'danger', icon: 'alert-triangle', text: `⚠️ 本月支出 $${currentMonthExpense.toLocaleString()} 已超過預算 $${monthlyBudget.toLocaleString()}！`, color: 'text-rose-600', bg: 'bg-rose-50 border-rose-200' };
+                if (prevMonthExpense > 0 && currentMonthExpense > prevMonthExpense) return { type: 'warning', icon: 'arrow-up-right', text: `📈 本月支出比上個月增加了 $${(currentMonthExpense - prevMonthExpense).toLocaleString()}，請留意開銷。`, color: 'text-amber-600', bg: 'bg-amber-50 border-amber-200' };
+                if (prevMonthExpense > 0 && currentMonthExpense < prevMonthExpense) return { type: 'success', icon: 'thumbs-up', text: `🎉 很棒！本月支出比上個月少了 $${(prevMonthExpense - currentMonthExpense).toLocaleString()}，繼續保持！`, color: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-200' };
+                return { type: 'neutral', icon: 'info', text: `本月預算 $${monthlyBudget.toLocaleString()}，目前使用了 ${Math.round((currentMonthExpense/monthlyBudget)*100)}%`, color: 'text-slate-600', bg: 'bg-slate-50 border-slate-200' };
+            }, [transactions, currentLedgerMonth, monthlyBudget]);
+
+            const retirementInsight = useMemo(() => {
+                if (!currentLedgerMonth) return null;
+                const savings = stats.monthIncome - stats.monthExpense;
+                const target = retirement.monthlyExpense;
+                if (savings < 0) return { icon: 'alert-triangle', text: `⚠️ 本月目前透支，資產縮水中，這會延後您的退休計畫喔！`, color: 'text-rose-600', bg: 'bg-rose-100' };
+                if (savings < target) return { icon: 'target', text: `🎯 本月結餘 $${savings.toLocaleString()}，距離退休目標月存額還有差距，加油！`, color: 'text-amber-600', bg: 'bg-amber-100' };
+                return { icon: 'party-popper', text: `🚀 太棒了！本月儲蓄力超標，正加速邁向財務自由！`, color: 'text-emerald-600', bg: 'bg-emerald-100' };
+            }, [stats, retirement, currentLedgerMonth]);
 
             // --- Handlers ---
             const updateAdvanceRow = (index, field, value) => { const newAdvances = [...splitData.advances]; newAdvances[index][field] = value; setSplitData({...splitData, advances: newAdvances}); };
@@ -401,7 +602,6 @@
             
             const handleTxSubmit = async (e) => { e.preventDefault(); const twdAmount = parseFloat(txForm.amount); const foreignAmount = parseFloat(txForm.foreignAmount) || 0; if (!twdAmount || !txForm.accountId) return; const batch = fbRef.current.writeBatch(dbRef.current); const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid); const txCol = fbRef.current.collection(userRef, 'transactions'); const bookId = currentBook.id; const baseTxData = { accountId: txForm.accountId, date: txForm.date, note: txForm.note, bookId: bookId, createdAt: new Date().toISOString(), currency: txForm.currency, foreignAmount: foreignAmount > 0 ? foreignAmount : null, exchangeRate: foreignAmount > 0 ? (twdAmount / foreignAmount) : 1 }; if (txForm.type === 'expense' && installment.enabled && isCreditCardPayment) { const periods = parseInt(installment.periods)||3; const amountPerMonth = Math.round(twdAmount/periods); const remainder = twdAmount - (amountPerMonth*periods); for(let i=0;i<periods;i++){ const currentMonthAmount = i===0 ? amountPerMonth+remainder : amountPerMonth; const installmentDate = addMonthsToDate(txForm.date, i); let finalCategory=txForm.category; if(!finalCategory){ if(categories[txForm.type] && categories[txForm.type].length>0) finalCategory=categories[txForm.type][0].name; else finalCategory='未分類'; } batch.set(fbRef.current.doc(txCol), { ...baseTxData, date: installmentDate, amount: currentMonthAmount, type: 'expense', category: finalCategory, subCategory: txForm.subCategory, note: `${txForm.note||''} (分期 ${i+1}/${periods})` }); } } else if (txForm.type === 'expense' && isAdvanceSplit) { let totalAdvanceTWD = 0; const validAdvances = splitData.advances.filter(a => a.debtor && a.amount); validAdvances.forEach(a => totalAdvanceTWD += parseFloat(a.amount)); if (totalAdvanceTWD > twdAmount) return; const myExpense = twdAmount - totalAdvanceTWD; if (myExpense > 0) { batch.set(fbRef.current.doc(txCol), { ...baseTxData, type: 'expense', amount: myExpense, category: txForm.category || categories.expense[0].name, subCategory: txForm.subCategory }); } validAdvances.forEach(adv => { batch.set(fbRef.current.doc(txCol), { ...baseTxData, type: 'advance', amount: parseFloat(adv.amount), category: '代墊', note: `代買: ${txForm.note || '商品'}`, debtor: adv.debtor, isSettled: false, foreignAmount: null }); }); } else if (txForm.type === 'income' && isAdvanceSplit) { const principal = parseFloat(splitData.principalAmount) || 0; const gain = twdAmount - principal; if (principal > 0) { batch.set(fbRef.current.doc(txCol), { ...baseTxData, type: 'transfer', amount: principal, category: '轉帳', accountId: splitData.sourceAccountId, toAccountId: txForm.accountId, note: `投資本金收回` }); } if (gain !== 0) { batch.set(fbRef.current.doc(txCol), { ...baseTxData, type: 'income', amount: gain, category: txForm.category || '投資', note: `投資獲利` }); } } else { let finalCategory = txForm.category; if (!finalCategory) { if (txForm.type === 'transfer') finalCategory = '轉帳'; else if (categories[txForm.type] && categories[txForm.type].length > 0) finalCategory = categories[txForm.type][0].name; else finalCategory = '未分類'; } const txData = { ...baseTxData, type: txForm.type, category: finalCategory, subCategory: txForm.subCategory, amount: twdAmount }; if (isCrossCurrencyTransfer) { txData.toAmount = parseFloat(txForm.toAmount); } batch.set(fbRef.current.doc(txCol), txData); } await batch.commit(); setIsTxModalOpen(false); resetTxForm(); };
             const resetTxForm = () => { setTxForm({ type: 'expense', amount: '', foreignAmount: '', toAmount: '', category: '', subCategory: '', accountId: '', toAccountId: '', debtor: '', date: (currentBook.startDate && currentBook.id !== 'main') ? currentBook.startDate : getLocalToday(), note: '', currency: currentBook.currency }); setIsAdvanceSplit(false); setInstallment({ enabled: false, periods: 3 }); setSplitData({ advances: [{ debtor: '', amount: '' }], principalAmount: '', sourceAccountId: '' }); };
-            
             const handleBookSubmit = async (e) => { e.preventDefault(); if(!bookForm.name) return; await fbRef.current.addDoc(fbRef.current.collection(dbRef.current, 'artifacts', appId, 'users', user.uid, 'books'), { ...bookForm, createdAt: new Date().toISOString() }); setIsBookModalOpen(false); setBookForm({ name: '', currency: 'TWD', startDate: '', endDate: '' }); };
             const handleSettle = async (e) => { e.preventDefault(); if (!settleTargetTx || !settleToAccount) return; const batch = fbRef.current.writeBatch(dbRef.current); const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid); batch.update(fbRef.current.doc(userRef, 'transactions', settleTargetTx.id), { isSettled: true, settledDate: new Date().toISOString().split('T')[0] }); batch.set(fbRef.current.doc(fbRef.current.collection(userRef, 'transactions')), { type: 'repayment', amount: parseFloat(settleTargetTx.amount), category: '還款', accountId: settleToAccount, date: new Date().toISOString().split('T')[0], note: `收回: ${settleTargetTx.debtor}`, relatedTxId: settleTargetTx.id, bookId: 'main', createdAt: new Date().toISOString() }); await batch.commit(); setIsSettleModalOpen(false); setSettleTargetTx(null); setSettleToAccount(''); };
             const handleAccSubmit = async (e) => { e.preventDefault(); if (!accForm.name) return; await fbRef.current.addDoc(fbRef.current.collection(dbRef.current, 'artifacts', appId, 'users', user.uid, 'accounts'), { ...accForm, createdAt: new Date().toISOString() }); setIsAccModalOpen(false); setAccForm({ name: '', type: 'cash', currency: 'TWD', initialBalance: '', includeInTotal: true, closingDay: '27', paymentDueDay: '15', autoPaymentAccount: '', holidayAdjustment: 'defer', autoPayment: false }); };
@@ -445,6 +645,9 @@
             }
 
             if (!sdkReady || loading) return <div className="h-screen flex items-center justify-center bg-gray-50"><Icon name="loader-2" className="animate-spin text-slate-500" size={40}/></div>;
+
+            const chartData = analysisType === 'expense' ? analysisData.expenseChartData : analysisData.incomeChartData;
+            const totalAmount = analysisType === 'expense' ? analysisData.totalExpense : analysisData.totalIncome;
 
             return (
                 <div className="min-h-screen pb-24 max-w-xl mx-auto bg-slate-50 relative">
@@ -514,14 +717,679 @@
                         </div>
                     )}
 
-                    {/* Settle Modal */}
-                    {isSettleModalOpen && <div className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"><div className="bg-white w-full max-w-md rounded-t-[2rem] sm:rounded-[2rem] p-8 animate-in slide-in-from-bottom"><h3 className="font-bold text-2xl mb-2 text-stone-800">收回代墊款</h3><p className="text-stone-500 mb-6">從 <span className="font-bold text-stone-800">{settleTargetTx?.debtor}</span> 收回 ${settleTargetTx?.amount}</p><form onSubmit={handleSettle} className="space-y-6"><div><p className="text-xs font-bold text-stone-400 uppercase ml-2 mb-2">存入帳戶</p><select required className="w-full bg-stone-50 p-4 rounded-xl text-base font-bold outline-none text-stone-700 border border-gray-200" value={settleToAccount} onChange={e=>setSettleToAccount(e.target.value)}><option value="" disabled>選擇帳戶</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div><button type="submit" className="w-full bg-emerald-600 text-white py-5 rounded-xl font-bold text-xl shadow-lg shadow-emerald-200 hover:bg-emerald-700">確認收款</button><button type="button" onClick={()=>{setIsSettleModalOpen(false);setSettleTargetTx(null)}} className="w-full bg-slate-100 text-slate-500 py-4 rounded-xl font-bold hover:bg-slate-200">取消</button></form></div></div>}
+                    <main className="p-4 space-y-6">
+                        {/* HOME */}
+                        {activeTab === 'home' && (
+                            <div className="animate-in space-y-6">
+                                {/* Date Navigation */}
+                                <div className="flex justify-between items-center px-1 mb-4">
+                                    <h2 className="text-2xl font-bold text-slate-800">帳本紀錄</h2>
+                                    <div className="flex items-center gap-2 bg-white rounded-lg p-1 shadow-sm border border-gray-200">
+                                        <button onClick={() => changeMonth(-1)} className="p-2 hover:bg-gray-100 rounded-md text-gray-500 transition-colors"><Icon name="chevron-left" size={20} /></button>
+                                        <div className="relative group">
+                                            <span className="font-bold text-slate-700 text-sm px-2 cursor-pointer transition-colors tabular-nums">{currentLedgerMonth.split('-')[0]}年 {currentLedgerMonth.split('-')[1]}月</span>
+                                            <input type="month" className="absolute inset-0 opacity-0 w-full h-full cursor-pointer" value={currentLedgerMonth} onChange={e => setCurrentLedgerMonth(e.target.value)} />
+                                        </div>
+                                         <button onClick={() => changeMonth(1)} className="p-2 hover:bg-gray-100 rounded-md text-gray-500 transition-colors"><Icon name="chevron-right" size={20} /></button>
+                                    </div>
+                                </div>
+
+                                {/* Summary Card (Grey-Blue Pro) */}
+                                <div className={`rounded-xl p-6 text-white shadow-lg relative overflow-hidden ${currentBook.id==='main' ? 'bg-slate-600' : 'bg-slate-500'}`}>
+                                    <div className="relative z-10">
+                                         <div className="text-center mb-8">
+                                             <p className="text-slate-200 font-medium mb-2 text-xs uppercase tracking-widest">{currentBook.id==='main' ? '本月結餘' : '本次旅費總支'}</p>
+                                             <h2 className="text-5xl font-black tracking-tight tabular-nums text-white">
+                                                {currentBook.id==='main' 
+                                                    ? `$${Math.round(stats.monthIncome - stats.monthExpense).toLocaleString()}` 
+                                                    : `-$${Math.round(bookStats.twd).toLocaleString()}`}
+                                             </h2>
+                                             {currentBook.id !== 'main' && bookStats.foreign > 0 && (
+                                                 <p className="text-sm text-slate-300 mt-2 font-mono">
+                                                     (外幣約 {currentBook.currency} {bookStats.foreign.toLocaleString()})
+                                                 </p>
+                                             )}
+                                         </div>
+                                         
+                                         <div className="flex gap-4 mb-2">
+                                             {/* Income Card */}
+                                             <div className="bg-white/10 backdrop-blur-md flex-1 rounded-lg p-4 border border-white/10 flex flex-col items-center shadow-sm">
+                                                 <div className="text-emerald-400 mb-1"><Icon name="arrow-up-right" size={20}/></div>
+                                                 <p className="text-xs text-gray-400 font-bold mb-1">收入</p>
+                                                 <p className="font-bold text-emerald-400 text-xl tabular-nums">+${stats.monthIncome.toLocaleString()}</p>
+                                             </div>
+                                             
+                                             {/* Expense Card */}
+                                             <div className="bg-white/10 backdrop-blur-md flex-1 rounded-lg p-4 border border-white/10 flex flex-col items-center shadow-sm">
+                                                 <div className="text-red-400 mb-1"><Icon name="arrow-down-right" size={20}/></div>
+                                                 <p className="text-xs text-gray-400 font-bold mb-1">支出</p>
+                                                 <p className="font-bold text-red-400 text-xl tabular-nums">-${stats.monthExpense.toLocaleString()}</p>
+                                             </div>
+                                         </div>
+                                         
+                                         {/* Smart Insight Block (Home - Spending Focus) */}
+                                         {homeInsight && (
+                                            <div className={`mt-4 rounded-lg p-3 flex items-start gap-3 border text-xs font-bold leading-relaxed ${homeInsight.bg} ${homeInsight.color} border-white/10 shadow-sm`}>
+                                                <div className="mt-0.5"><Icon name={homeInsight.icon} size={16} /></div>
+                                                <p>{homeInsight.text}</p>
+                                            </div>
+                                         )}
+
+                                         {outstandingDebt > 0 && (
+                                            <div className="mt-2 bg-slate-700/50 border border-slate-500 px-4 py-2 rounded-lg flex justify-between items-center cursor-pointer hover:bg-slate-600 transition-colors" onClick={()=>setActiveTab('debts')}>
+                                                <div className="flex items-center gap-2 text-slate-200">
+                                                    <Icon name="hand-coins" size={16}/>
+                                                    <span className="text-xs font-bold">待收帳款</span>
+                                                </div>
+                                                <p className="text-sm font-bold text-white tabular-nums">+${outstandingDebt.toLocaleString()}</p>
+                                            </div>
+                                         )}
+                                    </div>
+                                </div>
+
+                                {/* Transaction List */}
+                                <div className="space-y-3">
+                                    {monthlyTransactions.length === 0 ? (
+                                        <div className="text-center py-16 text-slate-400 text-sm border-2 border-dashed border-slate-200 rounded-xl bg-white"><Icon name="file-text" size={48} className="mx-auto mb-2 text-slate-300"/>{currentLedgerMonth.split('-')[0]}年 {currentLedgerMonth.split('-')[1]}月<br/>無 {currentBook.id==='main'?'記帳':'旅遊'} 紀錄</div>
+                                    ) : (
+                                        monthlyTransactions.map((tx, index) => {
+                                            const showDate = index === 0 || monthlyTransactions[index-1].date !== tx.date;
+                                            const catIcon = getCategoryIcon(tx.category, tx.type);
+                                            
+                                            const sourceAccountName = accounts.find(a=>a.id===tx.accountId)?.name || '未知帳戶';
+                                            const destAccountName = accounts.find(a=>a.id===tx.toAccountId)?.name || '未知帳戶';
+                                            
+                                            return (
+                                                <div key={tx.id}>
+                                                    {showDate && <div className="flex items-center gap-3 mb-2 mt-6 px-1"><div className="h-px flex-1 bg-slate-200"></div><p className="text-xs font-bold text-slate-400 tabular-nums">{tx.date}</p><div className="h-px flex-1 bg-slate-200"></div></div>}
+                                                    <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex justify-between items-center hover:border-slate-300 transition-all mb-2">
+                                                        <div className="flex items-center gap-4">
+                                                            <div className={`h-10 w-10 rounded-lg flex items-center justify-center text-lg ${tx.type==='transfer'?'bg-slate-100 text-slate-600':tx.type==='advance'?'bg-indigo-50 text-indigo-600':tx.type==='repayment'?'bg-teal-50 text-teal-600':'bg-slate-100 text-slate-600'}`} style={{backgroundColor: (tx.type!=='transfer' && tx.type!=='advance' && tx.type!=='repayment') ? CATEGORY_COLORS[tx.category]+'15' : '', color: (tx.type!=='transfer' && tx.type!=='advance' && tx.type!=='repayment') ? CATEGORY_COLORS[tx.category] : ''}}>
+                                                                {tx.type==='transfer' ? <Icon name="arrow-right-left" size={18}/> : tx.type==='advance' ? <Icon name="hand-coins" size={18}/> : tx.type==='repayment' ? <Icon name="check-circle" size={18}/> : <Icon name={catIcon} size={18}/>}
+                                                            </div>
+                                                            <div>
+                                                                <p className="font-bold text-slate-700 text-sm">
+                                                                    {tx.type==='transfer' ? '轉帳' : tx.type==='advance' ? '代墊款' : tx.category} 
+                                                                    {tx.subCategory && <span className="ml-1 text-xs text-slate-500 font-normal">({tx.subCategory})</span>}
+                                                                    {tx.type==='transfer' && <span className="text-xs text-slate-400 font-normal ml-2">{sourceAccountName} → {destAccountName}</span>} 
+                                                                    {tx.type==='advance' && <span className="text-xs text-slate-400 font-normal ml-2">對象: {tx.debtor}</span>}
+                                                                </p>
+                                                                <p className="text-xs text-slate-400 mt-0.5 font-normal">
+                                                                    {tx.note || ''} 
+                                                                    {tx.currency && tx.currency !== 'TWD' && <span className="ml-1 bg-slate-50 text-slate-600 px-1 rounded text-[10px] font-mono">{tx.foreignAmount} {tx.currency}</span>}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex flex-col items-end gap-1">
+                                                            <div className="flex items-center gap-3">
+                                                                <span className={`font-bold text-base tabular-nums ${tx.type==='income'||tx.type==='repayment'?'text-emerald-600':tx.type==='expense'||tx.type==='advance'?'text-slate-800':'text-slate-500'}`}>
+                                                                    {tx.type==='income'||tx.type==='repayment'?'+':tx.type==='expense'||tx.type==='advance'?'-':''}{tx.amount.toLocaleString()}
+                                                                    {/* 顯示跨幣別轉入金額 */}
+                                                                    {tx.type==='transfer' && tx.toAmount && (
+                                                                        <span className="text-xs text-slate-400 ml-1 block text-right">
+                                                                             → {tx.toAmount.toLocaleString()} {accounts.find(a=>a.id===tx.toAccountId)?.currency}
+                                                                        </span>
+                                                                    )}
+                                                                </span>
+                                                                <button onClick={()=>deleteItem('transactions', tx.id)} className="text-slate-300 hover:text-red-500 p-1 transition-colors"><Icon name="trash-2" size={16}/></button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* DEBTS */}
+                        {activeTab === 'debts' && (
+                            <div className="animate-in space-y-6">
+                                <h2 className="text-2xl font-bold px-2 text-slate-800">代墊與待收</h2>
+                                <div className="bg-teal-600 rounded-xl p-6 text-white shadow-md"><p className="text-xs opacity-80 font-bold uppercase tracking-widest mb-1">目前待收總額</p><h2 className="text-4xl font-black tabular-nums">${outstandingDebt.toLocaleString()}</h2></div>
+                                <div className="space-y-3">
+                                    {transactions.filter(t => t.type === 'advance' && !t.isSettled).length === 0 ? <div className="text-center py-16 text-slate-400 text-sm">目前沒有未結清的代墊款項</div> : 
+                                        transactions.filter(t => t.type === 'advance' && !t.isSettled).map(tx => (
+                                            <div key={tx.id} className="bg-white p-5 rounded-xl shadow-sm flex justify-between items-center border-l-4 border-teal-500">
+                                                <div><div className="flex items-center gap-2 mb-1"><span className="bg-teal-50 text-teal-700 px-2 py-0.5 rounded text-xs font-bold">對象: {tx.debtor}</span><span className="text-xs text-slate-400 tabular-nums">{tx.date}</span></div><p className="font-bold text-lg text-slate-800 tabular-nums">${tx.amount.toLocaleString()}</p><p className="text-xs text-slate-500">{tx.note || '無備註'}</p></div>
+                                                <button onClick={() => { setSettleTargetTx(tx); setIsSettleModalOpen(true); }} className="bg-slate-600 text-white px-5 py-2.5 rounded-lg text-sm font-bold shadow-md hover:bg-slate-700">收款</button>
+                                            </div>
+                                        ))
+                                    }
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ANALYSIS */}
+                        {activeTab === 'analysis' && (
+                            <div className="animate-in space-y-6">
+                                <h2 className="text-2xl font-bold px-2 text-slate-700">收支分析</h2>
+                                <div className="bg-white rounded-xl p-5 shadow-sm space-y-4 border border-slate-100">
+                                    <div className="flex justify-center">
+                                        {analysisMode==='month' && <input type="month" className="bg-slate-50 font-bold p-3 rounded-lg outline-none text-base text-slate-800 w-full text-center tabular-nums border border-slate-200" value={analysisDate} onChange={e=>{setAnalysisDate(e.target.value); setSelectedCategory(null);}} />}
+                                        {analysisMode==='year' && <select className="bg-slate-50 font-bold p-3 rounded-lg outline-none text-base text-slate-800 w-full text-center tabular-nums border border-slate-200" value={analysisYear} onChange={e=>{setAnalysisYear(e.target.value); setSelectedCategory(null);}}>{[...Array(5)].map((_,i)=><option key={i} value={new Date().getFullYear()-i}>{new Date().getFullYear()-i} 年</option>)}</select>}
+                                    </div>
+                                    <div className="flex bg-slate-100 p-1 rounded-lg">{['month', 'year', 'custom'].map(m => <button key={m} onClick={()=>{setAnalysisMode(m); setSelectedCategory(null);}} className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${analysisMode===m?'bg-white text-slate-600 shadow-sm':'text-slate-400'}`}>{m==='month'?'月報表':m==='year'?'年報表':'自訂'}</button>)}</div>
+                                    <div className="flex bg-slate-100 p-1 rounded-lg">
+                                        <button onClick={()=>{setAnalysisType('expense'); setSelectedCategory(null);}} className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${analysisType==='expense'?'bg-white text-rose-600 shadow-sm':'text-slate-400'}`}>支出分析</button>
+                                        <button onClick={()=>{setAnalysisType('income'); setSelectedCategory(null);}} className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${analysisType==='income'?'bg-white text-emerald-600 shadow-sm':'text-slate-400'}`}>收入分析</button>
+                                    </div>
+                                    <div className="flex bg-slate-100 p-1 rounded-lg">
+                                        <button onClick={()=>{setAnalysisGroupBy('main');}} className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${analysisGroupBy==='main'?'bg-white text-slate-800 shadow-sm':'text-slate-400'}`}>依主分類</button>
+                                        <button onClick={()=>{setAnalysisGroupBy('sub');}} className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${analysisGroupBy==='sub'?'bg-white text-slate-800 shadow-sm':'text-slate-400'}`}>依子分類</button>
+                                    </div>
+                                </div>
+                                {totalAmount > 0 ? (
+                                    <div className="bg-white rounded-xl p-6 shadow-sm flex flex-col items-center border border-slate-100">
+                                        <div className="relative h-64 w-64 mb-6">
+                                            <svg viewBox="0 0 100 100" className="transform -rotate-90 w-full h-full">
+                                                {(() => {
+                                                    let cumulative = 0;
+                                                    return chartData.map((d, i) => {
+                                                        const startA = cumulative * Math.PI * 2; cumulative += d.percent / 100; const endA = cumulative * Math.PI * 2;
+                                                        const x1 = 50 + 40 * Math.cos(startA), y1 = 50 + 40 * Math.sin(startA), x2 = 50 + 40 * Math.cos(endA), y2 = 50 + 40 * Math.sin(endA);
+                                                        return <path key={i} d={`M 50 50 L ${x1} ${y1} A 40 40 0 ${d.percent>50?1:0} 1 ${x2} ${y2} Z`} fill={d.color} stroke="#fff" strokeWidth="1" onClick={() => setSelectedCategory(d.name)} style={{cursor: 'pointer'}} />;
+                                                            });
+                                                        })()}
+                                                        <circle cx="50" cy="50" r="28" fill="white" />
+                                                    </svg>
+                                                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                                                        <p className="text-xs text-slate-400 font-bold uppercase">{analysisType==='expense'?'總支出':'總收入'}</p>
+                                                        <p className={`text-2xl font-black tabular-nums ${analysisType==='expense'?'text-slate-800':'text-emerald-500'}`}>${totalAmount.toLocaleString()}</p>
+                                                    </div>
+                                                </div>
+                                                <div className="w-full space-y-3">{chartData.map(d => <div key={d.name} className="flex items-center gap-3 cursor-pointer hover:bg-slate-50 p-2 rounded-lg transition-colors" onClick={() => analysisGroupBy === 'main' ? setSelectedCategory(d.name) : null}><div className="h-4 w-4 rounded-full" style={{backgroundColor: d.color}}></div><div className="flex-1"><div className="flex justify-between items-end mb-1"><span className="text-sm font-bold text-slate-600 flex items-center gap-2">{analysisGroupBy === 'main' && <Icon name={getCategoryIcon(d.name, analysisType)} size={14} className="text-slate-400"/>}{d.name}</span><div><span className="text-sm font-bold text-slate-900 mr-2 tabular-nums">${d.value.toLocaleString()}</span><span className="text-xs text-slate-400 tabular-nums">{Math.round(d.percent)}%</span></div></div><div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden"><div className="h-full rounded-full" style={{width: `${d.percent}%`, backgroundColor: d.color}}></div></div></div>{analysisGroupBy === 'main' && <Icon name="chevron-right" size={16} className="text-slate-300"/>}</div>)}</div>
+                                    </div>
+                                ) : <div className="text-center py-16 text-slate-400 text-sm">此期間無{analysisType==='expense'?'支出':'收入'}紀錄</div>}
+                            </div>
+                        )}
+
+                        {/* ASSETS */}
+                        {activeTab === 'assets' && (
+                            <div className="animate-in space-y-4">
+                                <div className="flex justify-between items-center px-2"><h2 className="text-2xl font-bold text-slate-800">我的帳戶</h2><button onClick={()=>setIsAccModalOpen(true)} className="flex items-center gap-1 text-sm font-bold bg-slate-600 text-white px-4 py-2 rounded-lg shadow-md hover:bg-slate-700 transition-colors"><Icon name="plus" size={16}/> 新增帳戶</button></div>
+                                
+                                {/* Retirement Progress Card (Modified) */}
+                                <div className="bg-slate-900 rounded-xl p-6 text-white shadow-md mb-4 border border-slate-800">
+                                    <div className="flex justify-between items-start mb-4">
+                                        <div>
+                                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">FIRE 退休進度</p>
+                                            <h3 className="text-2xl font-bold mt-1 tabular-nums">目標: ${Math.round(retirementStats.targetAmount/10000).toLocaleString()} 萬</h3>
+                                        </div>
+                                        <div className="h-10 w-10 rounded-full bg-slate-800 flex items-center justify-center text-yellow-400"><Icon name="flame" size={20}/></div>
+                                    </div>
+                                    <div className="relative h-4 w-full bg-black/30 rounded-full overflow-hidden mb-2">
+                                        <div className="absolute top-0 left-0 h-full bg-gradient-to-r from-yellow-400 to-red-500 transition-all duration-1000" style={{width: `${retirementStats.progress}%`}}></div>
+                                    </div>
+                                    <div className="flex justify-between text-xs text-slate-400 font-bold mb-3">
+                                        <span className="tabular-nums">已達成: ${Math.round(stats.totalAsset).toLocaleString()} ({retirementStats.progress.toFixed(1)}%)</span>
+                                        <span className="tabular-nums">剩餘: {retirementStats.yearsToRetire} 年</span>
+                                    </div>
+                                    
+                                     {/* AI Retirement Insight Block (Assets - Long Term Goal Focus) */}
+                                     {retirementInsight && (
+                                        <div className={`mt-4 rounded-lg p-3 flex items-start gap-3 border text-xs font-bold leading-relaxed ${retirementInsight.bg} ${retirementInsight.color} border-white/10 shadow-sm`}>
+                                            <div className="mt-0.5"><Icon name={retirementInsight.icon} size={16} /></div>
+                                            <p>{retirementInsight.text}</p>
+                                        </div>
+                                     )}
+                                </div>
+
+                                <div className="grid gap-4">{accounts.map(acc => (
+                                    <div key={acc.id} className="bg-white p-5 rounded-xl shadow-sm relative overflow-hidden group border border-slate-100">
+                                        <div className="absolute top-4 right-4 flex gap-2">
+                                            {acc.type === 'invest' && (
+                                                <button onClick={()=>openMarketValueModal(acc)} className="p-2 rounded-lg bg-slate-50 hover:bg-blue-50 text-blue-600 transition-colors"><Icon name="trending-up" size={16}/></button>
+                                            )}
+                                            <button onClick={()=>deleteItem('accounts', acc.id)} className="p-2 rounded-lg bg-slate-50 hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"><Icon name="trash-2" size={16}/></button>
+                                        </div>
+                                        
+                                        <div className="flex items-center gap-3 mb-2">
+                                            <div className={`p-2.5 rounded-lg ${ACCOUNT_TYPES[acc.type].color}`}><Icon name={ACCOUNT_TYPES[acc.type].iconName} size={20}/></div>
+                                            <div>
+                                                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">{ACCOUNT_TYPES[acc.type].label}</p>
+                                                <h3 className="font-bold text-lg text-slate-800">{acc.name}</h3>
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="mt-4">
+                                            {acc.type === 'invest' ? (
+                                                <>
+                                                    <p className="text-3xl font-black text-slate-900 tabular-nums">
+                                                        ${(acc.marketValue || (accountBalances[acc.id]||0)).toLocaleString()} <span className="text-sm text-slate-400 font-bold">{acc.currency}</span>
+                                                    </p>
+                                                    <div className="flex justify-between items-center mt-2 text-xs font-bold border-t border-slate-100 pt-2">
+                                                        <span className="text-slate-400 tabular-nums">成本: ${(accountBalances[acc.id]||0).toLocaleString()}</span>
+                                                        <span className={`tabular-nums ${(acc.marketValue||0) >= (accountBalances[acc.id]||0) ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                            損益: {((acc.marketValue||0) - (accountBalances[acc.id]||0)).toLocaleString()}
+                                                            { (accountBalances[acc.id]||0) !== 0 && ` (${(((acc.marketValue||0) - (accountBalances[acc.id]||0)) / (accountBalances[acc.id]||1) * 100).toFixed(1)}%)` }
+                                                        </span>
+                                                    </div>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <p className={`text-3xl font-black tabular-nums ${accountBalances[acc.id]<0?'text-red-600':'text-slate-900'}`}>
+                                                        ${(accountBalances[acc.id]||0).toLocaleString()} <span className="text-sm font-bold text-slate-400">{acc.currency}</span>
+                                                    </p>
+                                                    {acc.currency !== 'TWD' && (
+                                                        <p className="text-xs text-slate-400 mt-1 font-bold tabular-nums">≈ TWD ${Math.round((accountBalances[acc.id]||0) * (exchangeRates[acc.currency] || 1)).toLocaleString()}</p>
+                                                    )}
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}</div>
+                            </div>
+                        )}
+
+                        {/* SETTINGS */}
+                        {activeTab === 'settings' && (
+                            <div className="animate-in space-y-6">
+                                <h2 className="text-2xl font-bold px-2 text-slate-800">設定</h2>
+                                
+                                {/* Budget Setting (New) */}
+                                <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-100">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <div className="flex items-center gap-3"><div className="bg-blue-50 p-2 rounded-lg text-blue-600"><Icon name="pie-chart" size={20}/></div><h3 className="font-bold text-lg text-slate-800">月預算設定</h3></div>
+                                    </div>
+                                    <div className="flex gap-2">
+                                         <input 
+                                            type="number" 
+                                            className="flex-1 bg-slate-50 p-3 rounded-lg font-bold text-slate-800 outline-none border border-slate-200" 
+                                            placeholder="輸入每月預算"
+                                            defaultValue={monthlyBudget}
+                                            onBlur={(e) => handleBudgetSubmit(e.target.value)}
+                                        />
+                                    </div>
+                                    <p className="text-xs text-slate-400 mt-2">設定後，首頁小秘書將協助監控每月支出是否超支。</p>
+                                </div>
+                                
+                                {/* Exchange Rates Setting */}
+                                <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-100">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <div className="flex items-center gap-3"><div className="bg-teal-50 p-2 rounded-lg text-teal-600"><Icon name="globe" size={20}/></div><h3 className="font-bold text-lg text-slate-800">匯率管理</h3></div>
+                                        <button onClick={()=>setIsRateModalOpen(true)} className="text-sm bg-slate-600 text-white px-4 py-2 rounded-lg shadow-md hover:bg-slate-700">設定匯率</button>
+                                    </div>
+                                    <p className="text-xs text-slate-400">目前設定的參考匯率 (對 TWD):</p>
+                                    <div className="grid grid-cols-3 gap-2 mt-2">
+                                        {Object.entries(exchangeRates).filter(([k]) => k !== 'TWD').slice(0, 6).map(([k, v]) => (
+                                            <div key={k} className="bg-slate-50 p-2 rounded-lg text-xs font-bold text-slate-600 border border-slate-100 flex justify-between">
+                                                <span>{k}</span><span className="tabular-nums">{v}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-100">
+                                    <div className="flex justify-between items-center mb-6"><div className="flex items-center gap-3"><div className="bg-amber-50 p-2 rounded-lg text-amber-500"><Icon name="flame" size={20}/></div><h3 className="font-bold text-lg text-slate-800">退休計劃 (FIRE)</h3></div><button onClick={()=>{setRetireForm(retirement);setIsRetireModalOpen(true)}} className="text-sm bg-slate-600 text-white px-4 py-2 rounded-lg shadow-md hover:bg-slate-700">修改設定</button></div>
+                                    <div className="space-y-3 text-sm text-slate-600">
+                                        <div className="flex justify-between"><span>預計退休年齡</span><span className="font-bold tabular-nums">{retirement.retireAge} 歲</span></div>
+                                        <div className="flex justify-between"><span>預估月花費 (現值)</span><span className="font-bold tabular-nums">${retirement.monthlyExpense.toLocaleString()}</span></div>
+                                    </div>
+                                </div>
+
+                                <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-100">
+                                    <div className="flex justify-between items-center mb-6"><div className="flex items-center gap-3"><div className="bg-orange-50 p-2 rounded-lg text-orange-500"><Icon name="repeat" size={20}/></div><h3 className="font-bold text-lg text-slate-800">固定收支 / 轉帳</h3></div><button onClick={()=>setIsRecModalOpen(true)} className="text-sm bg-slate-600 text-white px-4 py-2 rounded-lg shadow-md hover:bg-slate-700">+ 新增項目</button></div>
+                                    <div className="space-y-3">{recurring.map(rec => <div key={rec.id} className="flex justify-between items-center p-4 bg-slate-50 rounded-lg border border-slate-100"><div><div className="flex items-center gap-2"><span className={`text-xs px-2 py-1 rounded font-bold ${rec.type==='income'?'bg-emerald-100 text-emerald-600':rec.type==='transfer'?'bg-slate-200 text-slate-600':'bg-red-100 text-red-600'}`}>{rec.type==='income'?'收入':rec.type==='transfer'?'轉帳':'支出'}</span><span className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded font-bold">每月 {rec.day} 號</span><p className="text-sm font-bold text-slate-700">{rec.name}</p></div><p className="text-xs text-slate-400 mt-1 tabular-nums">${rec.amount} • {rec.type==='transfer' ? `${accounts.find(a=>a.id===rec.accountId)?.name||'未知'} → ${accounts.find(a=>a.id===rec.toAccountId)?.name||'未知'}` : rec.category}</p></div><div className="flex gap-2"><button onClick={()=>applyRecurring(rec)} className="text-sm bg-indigo-50 text-indigo-500 px-4 py-2 rounded-lg font-bold hover:bg-indigo-100">記一筆</button><button onClick={()=>deleteItem('recurring', rec.id)} className="text-slate-300 hover:text-red-500 p-2"><Icon name="trash-2" size={18}/></button></div></div>)}</div>
+                                </div>
+                                <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-100">
+                                    <div className="flex items-center gap-3 mb-6"><div className="bg-blue-50 p-2 rounded-lg text-blue-500"><Icon name="tag" size={20}/></div><h3 className="font-bold text-lg text-slate-800">類別管理</h3></div>
+                                    <div className="flex gap-2 mb-6 bg-slate-100 p-1 rounded-lg">{['expense', 'income'].map(t => <button key={t} onClick={()=>setEditingCategoryType(t)} className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${editingCategoryType===t?'bg-white shadow text-blue-600':'text-slate-500'}`}>{t==='expense'?'支出':'收入'}</button>)}</div>
+                                    <div className="flex flex-wrap gap-2 mb-6">{categories[editingCategoryType].map(cat => (
+                                        <div key={cat.name} className="group flex items-center gap-2 pl-4 pr-3 py-2 bg-slate-50 rounded-lg text-sm font-bold text-slate-600 border border-slate-100 cursor-pointer hover:bg-blue-50 hover:text-blue-600 hover:border-blue-100 transition-colors" onClick={() => { setEditingCategory(cat); setIsEditCatModalOpen(true); }}>
+                                            <Icon name={cat.icon||'tag'} size={14} className="text-blue-400"/>
+                                            {cat.name}
+                                        </div>
+                                    ))}</div>
+                                    <div className="flex gap-2"><button onClick={()=>{setNewCatForm({name:'',icon:'tag',type:editingCategoryType, subs: []}); setIsAddCatModalOpen(true)}} className="w-full bg-slate-600 text-white p-3 rounded-xl hover:bg-slate-700 flex justify-center items-center gap-2"><Icon name="plus" size={20}/> 新增主類別</button></div>
+                                </div>
+                            </div>
+                        )}
+
+                    </main>
+
+                    {/* Navbar */}
+                    <nav className="fixed bottom-0 w-full bg-white/90 backdrop-blur-md border-t border-slate-200 px-6 py-2 flex justify-between items-center pb-safe z-30 max-w-xl mx-auto left-0 right-0">
+                        <NavBtn icon={<Icon name="layout-dashboard" size={24}/>} label="帳本" active={activeTab==='home'} onClick={()=>setActiveTab('home')}/>
+                        <NavBtn icon={<Icon name="pie-chart" size={24}/>} label="分析" active={activeTab==='analysis'} onClick={()=>setActiveTab('analysis')}/>
+                        <NavBtn icon={<Icon name="hand-coins" size={24}/>} label="待收" active={activeTab==='debts'} onClick={()=>setActiveTab('debts')}/>
+                        <NavBtn icon={<Icon name="landmark" size={24}/>} label="帳戶" active={activeTab==='assets'} onClick={()=>setActiveTab('assets')}/>
+                        <NavBtn icon={<Icon name="settings" size={24}/>} label="設定" active={activeTab==='settings'} onClick={()=>setActiveTab('settings')}/>
+                    </nav>
+
+                    {activeTab === 'home' && <button onClick={()=>setIsTxModalOpen(true)} className="fixed bottom-20 right-6 bg-slate-600 text-white p-4 rounded-full shadow-xl shadow-slate-300 z-40 transition-transform active:scale-95 hover:bg-slate-700"><Icon name="plus" size={32}/></button>}
+
+                    {/* TX MODAL */}
+                    {isTxModalOpen && (
+                        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+                            <div className="bg-white w-full max-w-md max-h-[90vh] overflow-y-auto rounded-t-[2rem] sm:rounded-[2rem] p-8 animate-in slide-in-from-bottom shadow-2xl">
+                                <div className="flex justify-between mb-8"><h3 className="font-bold text-2xl text-slate-900">記一筆</h3><button onClick={()=>{setIsTxModalOpen(false); resetTxForm();}} className="bg-slate-100 p-2 rounded-full text-slate-500 hover:bg-slate-200"><Icon name="x" size={24}/></button></div>
+                                <form onSubmit={handleTxSubmit} className="space-y-6">
+                                    <div className="bg-slate-100 p-1 rounded-xl flex overflow-x-auto">
+                                        {[{id:'expense',l:'支出'},{id:'income',l:'收入'},{id:'transfer',l:'轉帳'}].map(t => (
+                                            <button key={t.id} type="button" onClick={()=>{
+                                                setTxForm({...txForm, type:t.id, category: t.id==='transfer'?'轉帳':categories[t.id][0].name});
+                                                setIsAdvanceSplit(false); 
+                                            }} 
+                                                className={`flex-1 py-3 px-2 rounded-lg text-base font-bold whitespace-nowrap transition-all ${txForm.type===t.id?'bg-white shadow text-blue-600':'text-slate-500'}`}>
+                                                {t.l}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    
+                                    {/* 金額輸入區塊 */}
+                                    <div className="space-y-4">
+                                        <div>
+                                            <p className="text-xs font-bold text-slate-400 uppercase ml-2 mb-2">
+                                                {isCrossCurrencyTransfer ? `轉出金額 (${accounts.find(a=>a.id===txForm.accountId)?.currency || ''})` : '總金額 (含代墊)'}
+                                            </p>
+                                            <input type="number" autoFocus required className="w-full text-5xl font-black bg-slate-50 rounded-xl p-6 outline-none focus:ring-2 ring-blue-100 text-slate-900 tabular-nums" value={txForm.amount} onChange={e=>setTxForm({...txForm, amount:e.target.value})}/>
+                                        </div>
+
+                                        {/* 跨幣別轉入金額輸入框 */}
+                                        {isCrossCurrencyTransfer && (
+                                            <div className="animate-in slide-in-from-top">
+                                                <p className="text-xs font-bold text-slate-400 uppercase ml-2 mb-2">
+                                                    轉入金額 ({accounts.find(a=>a.id===txForm.toAccountId)?.currency || ''})
+                                                </p>
+                                                <input type="number" required className="w-full text-5xl font-black bg-slate-50 rounded-xl p-6 outline-none focus:ring-2 ring-emerald-100 text-emerald-600 tabular-nums" value={txForm.toAmount} onChange={e=>setTxForm({...txForm, toAmount:e.target.value})}/>
+                                                {txForm.amount && txForm.toAmount && (
+                                                    <p className="text-right text-xs text-slate-400 mt-1 tabular-nums">
+                                                        參考匯率: 1 {accounts.find(a=>a.id===txForm.accountId)?.currency} ≈ {(parseFloat(txForm.toAmount)/parseFloat(txForm.amount)).toFixed(4)} {accounts.find(a=>a.id===txForm.toAccountId)?.currency}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* 支出 -> 代買功能 (多人) */}
+                                    {txForm.type === 'expense' && (
+                                        <div className="space-y-4">
+                                            <label className="flex items-center gap-3 p-4 bg-indigo-50 rounded-xl cursor-pointer border border-indigo-100">
+                                                <input type="checkbox" className="w-5 h-5 accent-indigo-500" checked={isAdvanceSplit} onChange={e=>setIsAdvanceSplit(e.target.checked)}/>
+                                                <span className="font-bold text-indigo-700">包含代買 / 代墊款</span>
+                                            </label>
+                                            {isAdvanceSplit && (
+                                                <div className="p-4 bg-slate-50 rounded-xl border border-indigo-100 space-y-4 animate-in slide-in-from-top duration-300">
+                                                    {splitData.advances.map((adv, idx) => (
+                                                        <div key={idx} className="flex gap-2 items-start">
+                                                            <div className="flex-1 space-y-1">
+                                                                <input type="text" placeholder="對象 (如: 小明)" className="w-full bg-white p-3 rounded-lg font-bold outline-none text-sm border border-slate-200" 
+                                                                    value={adv.debtor} 
+                                                                    onChange={e => updateAdvanceRow(idx, 'debtor', e.target.value)}
+                                                                />
+                                                            </div>
+                                                            <div className="w-1/3 space-y-1">
+                                                                <input type="number" placeholder="金額" className="w-full bg-white p-3 rounded-lg font-bold outline-none text-sm border border-slate-200 tabular-nums" 
+                                                                    value={adv.amount} 
+                                                                    onChange={e => updateAdvanceRow(idx, 'amount', e.target.value)}
+                                                                />
+                                                            </div>
+                                                            {splitData.advances.length > 1 && (
+                                                                <button type="button" onClick={() => removeAdvanceRow(idx)} className="p-3 text-slate-400 hover:text-red-500"><Icon name="trash-2" size={18}/></button>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                    
+                                                    <button type="button" onClick={addAdvanceRow} 
+                                                        className="text-xs font-bold text-indigo-600 flex items-center gap-1 hover:underline">
+                                                        <Icon name="plus" size={14}/> 新增代墊對象
+                                                    </button>
+
+                                                    <div className="pt-2 border-t border-indigo-100 flex justify-between text-xs text-slate-500">
+                                                        <span className="tabular-nums">總代墊: ${splitData.advances.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0).toLocaleString()}</span>
+                                                        <span className="tabular-nums">您的實際支出: <span className="font-bold text-slate-800">${(parseFloat(txForm.amount||0) - splitData.advances.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0)).toLocaleString()}</span></span>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            
+                                            {/* 分期付款開關 */}
+                                            {isCreditCardPayment && !isAdvanceSplit && (
+                                                 <div className="p-4 bg-purple-50 rounded-xl border border-purple-100 space-y-3 animate-in slide-in-from-top">
+                                                    <label className="flex items-center justify-between cursor-pointer">
+                                                        <span className="font-bold text-purple-700 flex items-center gap-2"><Icon name="credit-card" size={16}/> 啟用分期付款</span>
+                                                        <input type="checkbox" className="w-5 h-5 accent-purple-500" checked={installment.enabled} onChange={e=>setInstallment({...installment, enabled:e.target.checked})}/>
+                                                    </label>
+                                                    
+                                                    {installment.enabled && (
+                                                        <div className="flex items-center gap-4 animate-in slide-in-from-top">
+                                                            <div className="flex-1">
+                                                                <p className="text-xs text-purple-400 font-bold mb-1">分幾期?</p>
+                                                                <select className="w-full bg-white p-2 rounded-lg font-bold text-sm outline-none border border-purple-200" value={installment.periods} onChange={e=>setInstallment({...installment, periods:e.target.value})}>
+                                                                    {[3,6,12,24].map(p => <option key={p} value={p}>{p} 期</option>)}
+                                                                </select>
+                                                            </div>
+                                                            <div className="flex-1 text-right">
+                                                                <p className="text-xs text-purple-400 font-bold mb-1">每期約</p>
+                                                                <p className="font-black text-purple-600 text-lg tabular-nums">${Math.round(parseFloat(txForm.amount||0) / installment.periods).toLocaleString()}</p>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                 </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* 收入 -> 投資本金功能 */}
+                                    {txForm.type === 'income' && (
+                                        <div className="space-y-4">
+                                            <label className="flex items-center gap-3 p-4 bg-teal-50 rounded-xl cursor-pointer border border-teal-100">
+                                                <input type="checkbox" className="w-5 h-5 accent-teal-500" checked={isAdvanceSplit} onChange={e=>setIsAdvanceSplit(e.target.checked)}/>
+                                                <span className="font-bold text-teal-700">投資獲利 / 含本金收回</span>
+                                            </label>
+                                            {isAdvanceSplit && (
+                                                <div className="p-4 bg-slate-50 rounded-xl border border-teal-100 space-y-4 animate-in slide-in-from-top duration-300">
+                                                    <div><p className="text-xs font-bold text-slate-400 mb-1">本金金額 (轉帳)</p><input type="number" placeholder="0" className="w-full bg-white p-3 rounded-lg font-bold outline-none border border-slate-200 tabular-nums" value={splitData.principalAmount} onChange={e=>setSplitData({...splitData, principalAmount:e.target.value})}/></div>
+                                                    <div><p className="text-xs font-bold text-slate-400 mb-1">本金來源帳戶 (轉出)</p><select className="w-full bg-white p-3 rounded-lg font-bold outline-none border border-slate-200" value={splitData.sourceAccountId} onChange={e=>setSplitData({...splitData, sourceAccountId:e.target.value})}><option value="">選擇帳戶</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
+                                                    <div className="text-right text-xs text-slate-400 tabular-nums">實際獲利 (收入): <span className="font-bold text-emerald-600">+${(parseFloat(txForm.amount||0) - (parseFloat(splitData.principalAmount)||0)).toLocaleString()}</span></div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    <div className="grid grid-cols-1 gap-4">
+                                        {txForm.type === 'transfer' ? (
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div><p className="text-xs font-bold text-slate-400 uppercase ml-2 mb-2">轉出</p><select required className="w-full bg-slate-50 p-4 rounded-xl text-base font-bold outline-none text-slate-700 border border-slate-200" value={txForm.accountId} onChange={e=>setTxForm({...txForm, accountId:e.target.value})}><option value="" disabled>選擇帳戶</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}</select></div>
+                                                <div><p className="text-xs font-bold text-slate-400 uppercase ml-2 mb-2">轉入</p><select required className="w-full bg-slate-50 p-4 rounded-xl text-base font-bold outline-none text-slate-700 border border-slate-200" value={txForm.toAccountId} onChange={e=>setTxForm({...txForm, toAccountId:e.target.value})}><option value="" disabled>選擇帳戶</option>{accounts.filter(a=>a.id!==txForm.accountId).map(a=><option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}</select></div>
+                                            </div>
+                                        ) : (
+                                            <div><p className="text-xs font-bold text-slate-400 uppercase ml-2 mb-2">{txForm.type === 'income' ? (isAdvanceSplit ? '存入帳戶 (含本金+獲利)' : '存入帳戶') : '支付帳戶'}</p><select required className="w-full bg-slate-50 p-4 rounded-xl text-base font-bold outline-none text-slate-700 border border-slate-200" value={txForm.accountId} onChange={e=>setTxForm({...txForm, accountId:e.target.value})}><option value="" disabled>選擇帳戶</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
+                                        )}
+                                    </div>
+                                    
+                                    {txForm.type !== 'transfer' && (
+                                        <div>
+                                            <div className="flex justify-between items-center mb-2">
+                                                <p className="text-xs font-bold text-slate-400 uppercase">類別</p>
+                                                <button type="button" onClick={() => { setIsAddCatModalOpen(true); setNewCatForm(prev => ({ ...prev, type: txForm.type, subs: [] })); }} className="text-xs font-bold text-slate-600 flex items-center gap-1 bg-slate-100 px-2 py-1 rounded-lg hover:bg-slate-200 transition-colors"><Icon name="plus" size={12}/> 新增類別</button>
+                                            </div>
+                                            {/* 主分類 Icon 列表 */}
+                                            <div className="flex flex-wrap gap-3 max-h-40 overflow-y-auto mb-2">
+                                                {categories[txForm.type] && categories[txForm.type].map(c => (
+                                                    <button key={c.name} type="button" onClick={()=>{setTxForm({...txForm, category:c.name, subCategory: ''})}} 
+                                                        className={`px-3 py-2 rounded-lg text-sm font-bold border flex items-center gap-2 transition-all ${txForm.category===c.name?'bg-slate-600 text-white border-slate-600':'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
+                                                        <Icon name={c.icon} size={16}/> {c.name}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                            {/* 子分類 Chips */}
+                                            {categories[txForm.type]?.find(c => c.name === txForm.category)?.subs?.length > 0 && (
+                                                 <div className="flex flex-wrap gap-2 animate-in slide-in-from-left duration-300">
+                                                    {categories[txForm.type].find(c => c.name === txForm.category).subs.map(sub => (
+                                                        <button key={sub} type="button" onClick={() => setTxForm({...txForm, subCategory: sub})}
+                                                            className={`px-3 py-1 rounded-full text-xs font-bold border transition-colors ${txForm.subCategory === sub ? 'bg-slate-200 text-slate-700 border-slate-300' : 'bg-slate-50 text-slate-500 border-transparent hover:bg-slate-100'}`}>
+                                                            {sub}
+                                                        </button>
+                                                    ))}
+                                                 </div>
+                                            )}
+                                        </div>
+                                    )}
+                                    <div className="flex gap-4"><input type="date" className="bg-slate-50 p-4 rounded-xl text-base font-bold outline-none text-slate-700 border border-slate-200 tabular-nums" value={txForm.date} onChange={e=>setTxForm({...txForm, date:e.target.value})}/><input type="text" placeholder="備註" className="flex-1 bg-slate-50 p-4 rounded-xl text-base font-bold outline-none border border-slate-200" value={txForm.note} onChange={e=>setTxForm({...txForm, note:e.target.value})}/></div>
+                                    <button type="submit" className="w-full bg-slate-600 text-white py-5 rounded-xl font-bold text-xl shadow-lg shadow-slate-300 active:scale-95 transition-transform hover:bg-slate-700">確認</button>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ADD CATEGORY MODAL */}
+                    {isAddCatModalOpen && (
+                        <div className="fixed inset-0 z-[60] bg-slate-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+                            <div className="bg-white w-full max-w-sm rounded-t-[2rem] sm:rounded-[2rem] p-8 animate-in slide-in-from-bottom shadow-2xl">
+                                <h3 className="font-bold text-xl mb-6 text-slate-800">新增{newCatForm.type==='expense'?'支出':'收入'}類別</h3>
+                                <div className="space-y-4">
+                                    <input type="text" placeholder="類別名稱 (例如: 健身)" className="w-full bg-slate-50 p-4 rounded-xl font-bold outline-none text-base border border-slate-200" value={newCatForm.name} onChange={e=>setNewCatForm({...newCatForm, name:e.target.value})}/>
+                                    <div>
+                                        <p className="text-xs font-bold text-slate-400 mb-2">選擇圖示</p>
+                                        <div className="grid grid-cols-6 gap-2 max-h-48 overflow-y-auto">
+                                            {AVAILABLE_ICONS.map(icon => (
+                                                <button key={icon} onClick={()=>setNewCatForm({...newCatForm, icon})} className={`p-2 rounded-lg flex justify-center items-center transition-colors ${newCatForm.icon===icon?'bg-slate-600 text-white':'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}>
+                                                    <Icon name={icon} size={20}/>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-2 pt-2">
+                                        <button onClick={()=>setIsAddCatModalOpen(false)} className="flex-1 bg-slate-100 text-slate-500 py-3 rounded-xl font-bold hover:bg-slate-200">取消</button>
+                                        <button onClick={handleAddCategory} className="flex-1 bg-slate-600 text-white py-3 rounded-xl font-bold hover:bg-slate-700">儲存</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                     
-                    {/* Rec Modal */}
+                    {/* EDIT CATEGORY MODAL (For Sub-categories) */}
+                    {isEditCatModalOpen && editingCategory && (
+                        <div className="fixed inset-0 z-[60] bg-slate-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+                            <div className="bg-white w-full max-w-sm rounded-t-[2rem] sm:rounded-[2rem] p-8 animate-in slide-in-from-bottom shadow-2xl">
+                                <div className="flex items-center gap-3 mb-6">
+                                    <div className="bg-blue-50 p-2 rounded-lg text-blue-600"><Icon name={editingCategory.icon || 'tag'} size={24}/></div>
+                                    <h3 className="font-bold text-xl text-slate-800">{editingCategory.name}</h3>
+                                </div>
+                                <div className="space-y-4">
+                                    <div>
+                                        <p className="text-xs font-bold text-slate-400 mb-2">子類別列表</p>
+                                        <div className="flex flex-wrap gap-2 mb-3">
+                                            {editingCategory.subs && editingCategory.subs.map(sub => (
+                                                <div key={sub} className="bg-slate-50 px-3 py-1 rounded-lg text-sm font-bold text-slate-600 flex items-center gap-2 border border-slate-200">
+                                                    {sub}
+                                                    <button onClick={() => handleDeleteSubCategory(editingCategory.name, sub)} className="text-slate-400 hover:text-red-500"><Icon name="x" size={12}/></button>
+                                                </div>
+                                            ))}
+                                            {(!editingCategory.subs || editingCategory.subs.length === 0) && <p className="text-sm text-slate-400 italic">尚無子類別</p>}
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <input 
+                                                type="text" 
+                                                placeholder="新增子類別 (例如: 早餐)" 
+                                                className="flex-1 bg-slate-50 p-3 rounded-xl font-bold outline-none text-sm border border-slate-200" 
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        handleAddSubCategory(editingCategory.name, e.target.value);
+                                                        e.target.value = '';
+                                                    }
+                                                }}
+                                                id="newSubInput"
+                                            />
+                                            <button onClick={() => {
+                                                const input = document.getElementById('newSubInput');
+                                                handleAddSubCategory(editingCategory.name, input.value);
+                                                input.value = '';
+                                            }} className="bg-slate-800 text-white p-3 rounded-xl hover:bg-slate-700"><Icon name="plus" size={18}/></button>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => {handleDeleteCategory(editingCategory.name); setIsEditCatModalOpen(false);}} className="w-full text-red-500 py-3 font-bold flex justify-center items-center gap-2 hover:bg-red-50 rounded-xl transition-colors"><Icon name="trash-2" size={18}/> 刪除此主類別</button>
+                                    <button onClick={()=>setIsEditCatModalOpen(false)} className="w-full bg-slate-100 text-slate-500 py-3 rounded-xl font-bold mt-2 hover:bg-slate-200">完成</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* MARKET VALUE MODAL */}
+                    {isMarketValueModalOpen && (
+                        <div className="fixed inset-0 z-[60] bg-slate-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+                            <div className="bg-white w-full max-w-sm rounded-t-[2rem] sm:rounded-[2rem] p-8 animate-in slide-in-from-bottom shadow-2xl">
+                                <h3 className="font-bold text-xl mb-4 text-slate-800">更新市值</h3>
+                                <p className="text-sm text-slate-500 mb-4">{targetMarketAccount.name} ({targetMarketAccount.currency})</p>
+                                <div className="space-y-2">
+                                    <p className="text-xs font-bold text-slate-400">目前市值</p>
+                                    <input 
+                                        type="number" 
+                                        autoFocus
+                                        className="w-full bg-slate-50 p-4 rounded-xl font-black text-2xl outline-none text-slate-800 border border-slate-200 tabular-nums" 
+                                        value={newMarketValue} 
+                                        onChange={e => setNewMarketValue(e.target.value)} 
+                                        placeholder="輸入最新市值"
+                                    />
+                                </div>
+                                <div className="flex gap-2 mt-6">
+                                    <button onClick={()=>setIsMarketValueModalOpen(false)} className="flex-1 bg-slate-100 text-slate-500 py-3 rounded-xl font-bold hover:bg-slate-200">取消</button>
+                                    <button onClick={handleUpdateMarketValue} className="flex-1 bg-slate-600 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-slate-700">更新</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* EXCHANGE RATE MODAL */}
+                    {isRateModalOpen && (
+                        <div className="fixed inset-0 z-[60] bg-slate-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+                            <div className="bg-white w-full max-w-sm rounded-t-[2rem] sm:rounded-[2rem] p-8 animate-in slide-in-from-bottom shadow-2xl">
+                                <h3 className="font-bold text-xl mb-4 text-slate-800">匯率設定 (1 外幣 = ? TWD)</h3>
+                                <div className="space-y-3 max-h-80 overflow-y-auto pr-2">
+                                    {CURRENCIES.filter(c => c !== 'TWD').map(curr => (
+                                        <div key={curr} className="flex justify-between items-center border-b border-slate-50 pb-2 last:border-0">
+                                            <span className="font-bold text-slate-600">{curr}</span>
+                                            <input 
+                                                type="number" 
+                                                step="0.01" 
+                                                className="w-24 bg-slate-50 p-2 rounded-lg font-bold text-right outline-none border border-slate-200 tabular-nums text-slate-800" 
+                                                value={exchangeRates[curr] || ''} 
+                                                onChange={e => setExchangeRates({...exchangeRates, [curr]: parseFloat(e.target.value)})} 
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="flex gap-2 mt-4">
+                                    <button onClick={()=>setIsRateModalOpen(false)} className="flex-1 bg-slate-100 text-slate-500 py-3 rounded-xl font-bold hover:bg-slate-200">取消</button>
+                                    <button onClick={handleRatesSubmit} className="flex-1 bg-slate-600 text-white py-3 rounded-xl font-bold hover:bg-slate-700">儲存</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* BOOK CREATION MODAL (RESTORED) */}
+                    {isBookModalOpen && (
+                        <div className="fixed inset-0 z-[80] bg-slate-900/60 backdrop-blur-sm flex flex-col justify-end sm:justify-center p-4">
+                             <div className="bg-white w-full max-w-sm mx-auto rounded-xl p-6 shadow-2xl animate-in slide-in-from-bottom">
+                                <h3 className="font-bold text-xl mb-6 text-slate-800">新增旅遊帳本</h3>
+                                <form onSubmit={handleBookSubmit} className="space-y-4">
+                                    <input type="text" placeholder="帳本名稱 (例如: 東京之旅)" className="w-full bg-slate-50 p-4 rounded-xl font-bold outline-none border border-slate-200" value={bookForm.name} onChange={e=>setBookForm({...bookForm, name:e.target.value})}/>
+                                    <div>
+                                        <p className="text-xs font-bold text-slate-400 mb-1">主要幣別</p>
+                                        <select className="w-full bg-slate-50 p-3 rounded-xl font-bold outline-none border border-slate-200" value={bookForm.currency} onChange={e=>setBookForm({...bookForm, currency:e.target.value})}>
+                                            {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div><p className="text-xs font-bold text-slate-400 mb-1">開始日期</p><input type="date" className="w-full bg-slate-50 p-3 rounded-xl font-bold outline-none text-sm border border-slate-200" value={bookForm.startDate} onChange={e=>setBookForm({...bookForm, startDate:e.target.value})}/></div>
+                                        <div><p className="text-xs font-bold text-slate-400 mb-1">結束日期</p><input type="date" className="w-full bg-slate-50 p-3 rounded-xl font-bold outline-none text-sm border border-slate-200" value={bookForm.endDate} onChange={e=>setBookForm({...bookForm, endDate:e.target.value})}/></div>
+                                    </div>
+                                    <button type="submit" className="w-full bg-slate-600 text-white py-4 rounded-xl font-bold shadow-lg hover:bg-slate-700">建立帳本</button>
+                                    <button type="button" onClick={()=>setIsBookModalOpen(false)} className="w-full py-3 text-slate-400 font-bold hover:text-slate-600">取消</button>
+                                </form>
+                             </div>
+                        </div>
+                    )}
+
+                    {/* Simplified Settle Modal */}
+                    {isSettleModalOpen && <div className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"><div className="bg-white w-full max-w-md rounded-t-[2rem] sm:rounded-[2rem] p-8 animate-in slide-in-from-bottom"><h3 className="font-bold text-2xl mb-2 text-stone-800">收回代墊款</h3><p className="text-stone-500 mb-6">從 <span className="font-bold text-stone-800">{settleTargetTx?.debtor}</span> 收回 ${settleTargetTx?.amount}</p><form onSubmit={handleSettle} className="space-y-6"><div><p className="text-xs font-bold text-stone-400 uppercase ml-2 mb-2">存入帳戶</p><select required className="w-full bg-stone-50 p-4 rounded-xl text-base font-bold outline-none text-stone-700 border border-gray-200" value={settleToAccount} onChange={e=>setSettleToAccount(e.target.value)}><option value="" disabled>選擇帳戶</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div><button type="submit" className="w-full bg-emerald-600 text-white py-5 rounded-xl font-bold text-xl shadow-lg shadow-emerald-200 hover:bg-emerald-700">確認收款</button><button type="button" onClick={()=>{setIsSettleModalOpen(false);setSettleTargetTx(null)}} className="w-full bg-slate-100 text-slate-500 py-4 rounded-xl font-bold hover:bg-slate-200">取消</button></form></div></div>}
+                    {/* Simplified Rec Modal */}
                     {isRecModalOpen && <div className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"><div className="bg-white w-full max-w-md rounded-t-[2rem] sm:rounded-[2rem] p-8 animate-in slide-in-from-bottom"><div className="flex justify-between mb-8"><h3 className="font-bold text-2xl text-stone-800">新增固定項目</h3><button onClick={()=>setIsRecModalOpen(false)} className="bg-stone-100 p-2 rounded-full text-stone-500 hover:bg-stone-200"><Icon name="x" size={24}/></button></div><form onSubmit={handleRecSubmit} className="space-y-6"><div className="bg-stone-100 p-1 rounded-xl flex"> {[{id:'expense',l:'支出'},{id:'income',l:'收入'},{id:'transfer',l:'轉帳'}].map(t => (<button key={t.id} type="button" onClick={()=>setRecForm({...recForm, type:t.id, category: t.id==='transfer'?'轉帳':categories[t.id][0].name})} className={`flex-1 py-3 rounded-lg text-base font-bold transition-all ${recForm.type===t.id?'bg-white shadow text-slate-600':'text-slate-500'}`}>{t.l}</button>))} </div><div className="flex gap-4"><input type="text" required placeholder="項目名稱 (如: 房租)" className="flex-1 bg-stone-50 p-4 rounded-xl font-bold outline-none text-base border border-gray-200" value={recForm.name} onChange={e=>setRecForm({...recForm, name:e.target.value})}/><div className="w-32 bg-stone-50 rounded-xl p-2 border border-gray-200"><p className="text-xs font-bold text-slate-400 uppercase mb-1 ml-1">每月幾號</p><select className="w-full bg-transparent font-bold outline-none text-base text-stone-700" value={recForm.day} onChange={e=>setRecForm({...recForm, day:e.target.value})}>{[...Array(31)].map((_, i) => <option key={i+1} value={i+1}>{i+1} 號</option>)}</select></div></div><input type="number" required placeholder="金額" className="w-full bg-stone-50 p-4 rounded-xl font-bold outline-none text-xl border border-gray-200 tabular-nums" value={recForm.amount} onChange={e=>setRecForm({...recForm, amount:e.target.value})}/>{recForm.type !== 'transfer' ? (<><div><p className="text-xs font-bold text-stone-400 uppercase ml-2 mb-2">類別</p><div className="flex flex-wrap gap-3 max-h-40 overflow-y-auto">{categories[recForm.type] && categories[recForm.type].map(c => <button key={c.name} type="button" onClick={()=>setRecForm({...recForm, category:c.name})} className={`px-4 py-2 rounded-lg text-sm font-bold border ${recForm.category===c.name?'bg-blue-600 text-white border-blue-600':'bg-white border-stone-200 text-stone-500'}`}>{c.name}</button>)}</div></div><div><p className="text-xs font-bold text-stone-400 uppercase ml-2 mb-2">預設扣款帳戶 (選填)</p><select className="w-full bg-stone-50 p-4 rounded-xl text-base font-bold outline-none text-stone-700 border border-gray-200" value={recForm.accountId} onChange={e=>setRecForm({...recForm, accountId:e.target.value})}><option value="">不指定 (每次詢問)</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div></>) : (<div className="grid grid-cols-2 gap-4"><div><p className="text-xs font-bold text-stone-400 uppercase ml-2 mb-2">轉出帳戶</p><select required className="w-full bg-stone-50 p-4 rounded-xl text-base font-bold outline-none" value={recForm.accountId} onChange={e=>setRecForm({...recForm, accountId:e.target.value})}><option value="" disabled>選擇帳戶</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div><div><p className="text-xs font-bold text-stone-400 uppercase ml-2 mb-2">轉入帳戶</p><select required className="w-full bg-stone-50 p-4 rounded-xl text-base font-bold outline-none" value={recForm.toAccountId} onChange={e=>setRecForm({...recForm, toAccountId:e.target.value})}><option value="" disabled>選擇帳戶</option>{accounts.filter(a=>a.id!==recForm.accountId).map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div></div>)}<button type="submit" className="w-full bg-slate-600 text-white py-5 rounded-xl font-bold text-xl shadow-lg hover:bg-slate-700">新增固定項目</button></form></div></div>}
-                    {/* Acc Modal */}
+                    {/* Simplified Acc Modal */}
                     {isAccModalOpen && <div className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"><div className="bg-white w-full max-w-md rounded-t-[2rem] sm:rounded-[2rem] p-8 animate-in slide-in-from-bottom"><div className="flex justify-between mb-8"><h3 className="font-bold text-2xl text-stone-800">新增帳戶</h3><button onClick={()=>setIsAccModalOpen(false)} className="bg-stone-100 p-2 rounded-full text-stone-500"><Icon name="x" size={24}/></button></div><form onSubmit={handleAccSubmit} className="space-y-6"><input type="text" required placeholder="帳戶名稱 (例如: 玉山銀行)" className="w-full bg-stone-50 p-4 rounded-xl font-bold text-base border border-gray-200" value={accForm.name} onChange={e=>setAccForm({...accForm, name:e.target.value})}/><div className="space-y-2"><p className="text-xs font-bold text-stone-400 ml-1">類型</p><select className="w-full bg-stone-50 p-4 rounded-xl font-bold text-base border border-gray-200" value={accForm.type} onChange={e=>setAccForm({...accForm, type:e.target.value})}>{Object.entries(ACCOUNT_TYPES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></div><div className="flex gap-4"><div className="flex-1"><p className="text-xs font-bold text-stone-400 mb-2 ml-1">初始餘額</p><input type="number" required placeholder="0" className="w-full bg-stone-50 p-4 rounded-xl font-bold text-base border border-gray-200 tabular-nums" value={accForm.initialBalance} onChange={e=>setAccForm({...accForm, initialBalance:e.target.value})}/></div><div className="w-28"><p className="text-xs font-bold text-stone-400 mb-2 ml-1">幣別</p><select className="w-full bg-stone-50 p-4 rounded-xl font-bold text-base border border-gray-200" value={accForm.currency} onChange={e=>setAccForm({...accForm, currency:e.target.value})}><option value="TWD">TWD</option><option value="USD">USD</option><option value="JPY">JPY</option></select></div></div><button type="submit" className="w-full bg-blue-600 text-white py-5 rounded-xl font-bold text-xl shadow-lg hover:bg-blue-700">建立帳戶</button></form></div></div>}
-                    {/* Retire Modal */}
+                    {/* Simplified Retire Modal */}
                     {isRetireModalOpen && <div className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"><div className="bg-white w-full max-w-md rounded-t-[2rem] sm:rounded-[2rem] p-8 animate-in slide-in-from-bottom"><h3 className="font-bold text-2xl mb-8 text-slate-800">退休設定</h3><form onSubmit={handleRetireSubmit} className="space-y-6"><input type="number" required placeholder="目前年齡" className="w-full bg-stone-50 p-4 rounded-xl font-bold border border-gray-200 tabular-nums" value={retireForm.currentAge} onChange={e=>setRetireForm({...retireForm, currentAge:e.target.value})}/><input type="number" required placeholder="退休年齡" className="w-full bg-stone-50 p-4 rounded-xl font-bold border border-gray-200 tabular-nums" value={retireForm.retireAge} onChange={e=>setRetireForm({...retireForm, retireAge:e.target.value})}/><input type="number" required placeholder="月花費" className="w-full bg-stone-50 p-4 rounded-xl font-bold border border-gray-200 tabular-nums" value={retireForm.monthlyExpense} onChange={e=>setRetireForm({...retireForm, monthlyExpense:e.target.value})}/><input type="number" required placeholder="通膨率" className="w-full bg-stone-50 p-4 rounded-xl font-bold border border-gray-200 tabular-nums" value={retireForm.inflation} onChange={e=>setRetireForm({...retireForm, inflation:e.target.value})}/><button type="submit" className="w-full bg-amber-500 text-white py-5 rounded-xl font-bold text-xl shadow-lg">儲存</button></form></div></div>}
                     
                     {error && <div className="fixed inset-0 z-[60] bg-stone-900/50 flex items-center justify-center p-4"><div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100"><h3 className="font-bold text-xl text-rose-500 mb-2">{error.title}</h3><p className="text-stone-600 mb-6 whitespace-pre-wrap">{error.message}</p><button onClick={()=>setError(null)} className="w-full bg-stone-800 text-white py-3 rounded-xl font-bold hover:bg-stone-700">我知道了</button><button onClick={resetApp} className="w-full bg-stone-100 text-stone-500 py-3 rounded-xl font-bold mt-2 hover:bg-stone-200">重設 Firebase 設定</button></div></div>}
