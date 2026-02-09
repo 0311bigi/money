@@ -180,7 +180,7 @@
             { amount: 1000000, title: '百萬富翁', icon: 'gem', color: 'text-sky-600', bg: 'bg-sky-50' },
             { amount: 3000000, title: '資產小成', icon: 'award', color: 'text-indigo-600', bg: 'bg-indigo-50' },
             { amount: 5000000, title: '半個千萬', icon: 'trophy', color: 'text-purple-600', bg: 'bg-purple-50' },
-            { amount: 10000000, title: '千萬富豪', icon: 'crown', color: 'text-amber-600', bg: 'bg-amber-100' },
+            { amount: 10000000, title: '千萬富豪', icon: 'crown', color: 'text-amber-600', bg: 'bg-amber-50' },
         ];
 
         function App() {
@@ -296,12 +296,19 @@
 
             const handleSaveConfig = () => {
                 try {
+                    // 自動清理：移除可能的 'const firebaseConfig =' 前綴和結尾的分號
                     let cleanedInput = configInput.trim();
                     if (cleanedInput.includes("const firebaseConfig") || cleanedInput.includes("var firebaseConfig")) {
                          const firstBrace = cleanedInput.indexOf('{');
                          if (firstBrace !== -1) cleanedInput = cleanedInput.substring(firstBrace);
                     }
                     if (cleanedInput.endsWith(";")) cleanedInput = cleanedInput.slice(0, -1).trim();
+
+                    // 智慧修正：自動幫 key 加上雙引號
+                    cleanedInput = cleanedInput.replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":');
+                    // 移除陣列或物件最後多餘的逗號 (Trailing commas)
+                    cleanedInput = cleanedInput.replace(/,\s*}/g, '}');
+                    cleanedInput = cleanedInput.replace(/,\s*]/g, ']');
 
                     const config = JSON.parse(cleanedInput);
                     if (!config.apiKey || !config.projectId) throw new Error("設定缺少必要欄位 (apiKey 或 projectId)");
@@ -677,7 +684,6 @@
             const handleDeleteSubCategory = async (mainCatName, subName) => { const newCats = { ...categories }; const catIndex = newCats[editingCategoryType].findIndex(c => c.name === mainCatName); if (catIndex > -1) { newCats[editingCategoryType][catIndex].subs = newCats[editingCategoryType][catIndex].subs.filter(s => s !== subName); await fbRef.current.updateDoc(fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid, 'settings', 'config'), { categories: newCats }); } };
             const deleteItem = async (col, id) => { await fbRef.current.deleteDoc(fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid, col, id)); };
             const applyRecurring = (rec) => { const today = new Date(); const targetDay = Math.min(parseInt(rec.day||today.getDate()), new Date(today.getFullYear(), today.getMonth()+1, 0).getDate()); setTxForm({ type: rec.type, amount: rec.amount, category: rec.category||categories[rec.type][0].name, accountId: rec.accountId||'', toAccountId: rec.toAccountId||'', date: `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(targetDay).padStart(2,'0')}`, note: rec.name, currency: 'TWD' }); setActiveTab('home'); setIsTxModalOpen(true); };
-            
             const updateAdvanceRow = (index, field, value) => { const newAdvances = [...splitData.advances]; newAdvances[index][field] = value; setSplitData({...splitData, advances: newAdvances}); };
             const addAdvanceRow = () => { setSplitData({...splitData, advances: [...splitData.advances, { debtor: '', amount: '' }]}); };
             const removeAdvanceRow = (index) => { const newAdvances = splitData.advances.filter((_, i) => i !== index); setSplitData({...splitData, advances: newAdvances}); };
@@ -726,7 +732,7 @@
                                 <p className="text-xs text-slate-500 font-medium">{currentBook.currency === 'TWD' ? '日常帳本' : '旅遊模式'}</p>
                             </div>
                         </div>
-                        {user?.isAnonymous ? <button onClick={handleGoogleLogin} className="text-sm font-bold text-slate-600 bg-slate-100 px-4 py-2 rounded-lg hover:bg-slate-200 transition-colors">登入綁定</button> : <div className="h-10 w-10 rounded-full overflow-hidden border-2 border-gray-200 shadow-sm"><img src={user.photoURL || 'https://via.placeholder.com/40'} alt="User"/></div>}
+                        {user?.isAnonymous ? <button onClick={handleGoogleLogin} className="text-sm font-bold text-slate-600 bg-slate-100 px-4 py-2 rounded-lg hover:bg-slate-200 transition-colors">登入綁定</button> : <div className="h-10 w-10 rounded-full overflow-hidden border-2 border-gray-200 shadow-sm"><img src={user.photoURL} alt="User"/></div>}
                     </header>
 
                     {/* Book Selector Overlay */}
