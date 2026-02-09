@@ -5,14 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     
     <!-- PWA / App 設定 -->
-    <title>雲端帳本</title>
+    <title>雲端帳本 Pro</title>
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="雲端帳本">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#F8FAFC">
 
-    <!-- 自動產生 App 圖示的腳本 -->
+    <!-- 自動產生 App 圖示 -->
     <script>
         (function() {
             try {
@@ -20,25 +20,18 @@
                 canvas.width = 512;
                 canvas.height = 512;
                 var ctx = canvas.getContext('2d');
-                
-                // 背景 (Slate-600 #475569)
                 ctx.fillStyle = '#475569'; 
                 ctx.fillRect(0, 0, 512, 512);
-                
-                // 裝飾圓圈
                 ctx.strokeStyle = 'rgba(255,255,255,0.1)';
                 ctx.lineWidth = 40;
                 ctx.beginPath();
                 ctx.arc(512, 512, 200, 0, Math.PI * 2);
                 ctx.stroke();
-                
-                // 文字 "帳"
                 ctx.fillStyle = '#ffffff';
                 ctx.font = 'bold 300px "Noto Sans TC", sans-serif';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillText('帳', 256, 270);
-
                 var iconUrl = canvas.toDataURL('image/png');
                 var linkApple = document.createElement('link');
                 linkApple.rel = 'apple-touch-icon';
@@ -49,9 +42,7 @@
                 linkFavicon.type = 'image/png';
                 linkFavicon.href = iconUrl;
                 document.head.appendChild(linkFavicon);
-            } catch (e) {
-                console.error("Icon generation failed", e);
-            }
+            } catch (e) { console.error("Icon gen failed", e); }
         })();
     </script>
 
@@ -59,15 +50,10 @@
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- 引入 Lucide 圖示庫 -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
-        body { 
-            font-family: 'Inter', 'Noto Sans TC', sans-serif; 
-            -webkit-tap-highlight-color: transparent; 
-            overscroll-behavior-y: none;
-        }
+        body { font-family: 'Inter', 'Noto Sans TC', sans-serif; -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .animate-in { animation: fadeIn 0.3s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
@@ -79,17 +65,12 @@
 <body class="bg-[#F8FAFC] text-slate-800 text-base selection:bg-slate-200">
     <div id="root"></div>
 
-    <!-- Firebase SDK (模組化載入) -->
+    <!-- Firebase SDK -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
         import { getFirestore, collection, doc, onSnapshot, addDoc, deleteDoc, updateDoc, setDoc, query, where, writeBatch, getDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
         import { getAuth, signInAnonymously, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
-        
-        window.FirebaseSDK = { 
-            initializeApp, getFirestore, collection, doc, onSnapshot, addDoc, deleteDoc, 
-            updateDoc, setDoc, query, where, writeBatch, getDoc, getAuth, 
-            signInAnonymously, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut 
-        };
+        window.FirebaseSDK = { initializeApp, getFirestore, collection, doc, onSnapshot, addDoc, deleteDoc, updateDoc, setDoc, query, where, writeBatch, getDoc, getAuth, signInAnonymously, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut };
         window.isFirebaseSDKReady = true;
     </script>
 
@@ -109,19 +90,8 @@
             return <span ref={ref} style={{ display: 'inline-flex', verticalAlign: 'middle' }}></span>;
         };
 
-        const firebaseConfig = JSON.parse(window.__firebase_config || '{}');
-
-        // Helper: Local Date Strings
-        const getLocalToday = () => {
-            const d = new Date();
-            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        };
-        const getLocalMonth = () => {
-            const d = new Date();
-            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-        };
-
-        // Helper: Add Months to date
+        const getLocalToday = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+        const getLocalMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
         const addMonthsToDate = (dateStr, months) => {
             const [y, m, d] = dateStr.split('-').map(Number);
             const newDate = new Date(y, m - 1 + months, 1);
@@ -132,56 +102,15 @@
         };
 
         const DEFAULT_CATEGORIES = {
-            expense: [
-                { name: '飲食', icon: 'utensils', subs: ['早餐', '午餐', '晚餐', '飲料', '零食'] },
-                { name: '交通', icon: 'bus', subs: ['公車', '捷運', '計程車', '加油', '停車'] },
-                { name: '購物', icon: 'shopping-bag', subs: ['日用品', '服飾', '3C', '保養'] },
-                { name: '娛樂', icon: 'film', subs: ['電影', '遊戲', '聚會', '訂閱'] },
-                { name: '居住', icon: 'home', subs: ['房租', '水電', '瓦斯', '網路'] },
-                { name: '醫療', icon: 'stethoscope', subs: ['看診', '藥品', '保健'] },
-                { name: '教育', icon: 'graduation-cap', subs: ['書籍', '課程'] },
-                { name: '運動', icon: 'dumbbell', subs: ['健身房', '裝備', '瑜珈'] }, 
-                { name: '其他', icon: 'more-horizontal', subs: [] }
-            ],
-            income: [
-                { name: '薪資', icon: 'wallet', subs: ['本薪', '兼職'] },
-                { name: '獎金', icon: 'gift', subs: ['年終', '分紅'] },
-                { name: '投資', icon: 'trending-up', subs: ['股息', '價差'] },
-                { name: '零用錢', icon: 'coins', subs: [] },
-                { name: '其他', icon: 'more-horizontal', subs: [] }
-            ]
+            expense: [ { name: '飲食', icon: 'utensils', subs: ['早餐', '午餐', '晚餐', '飲料', '零食'] }, { name: '交通', icon: 'bus', subs: ['公車', '捷運', '計程車', '加油', '停車'] }, { name: '購物', icon: 'shopping-bag', subs: ['日用品', '服飾', '3C', '保養'] }, { name: '娛樂', icon: 'film', subs: ['電影', '遊戲', '聚會', '訂閱'] }, { name: '居住', icon: 'home', subs: ['房租', '水電', '瓦斯', '網路'] }, { name: '醫療', icon: 'stethoscope', subs: ['看診', '藥品', '保健'] }, { name: '教育', icon: 'graduation-cap', subs: ['書籍', '課程'] }, { name: '運動', icon: 'dumbbell', subs: ['健身房', '裝備', '瑜珈'] }, { name: '其他', icon: 'more-horizontal', subs: [] } ],
+            income: [ { name: '薪資', icon: 'wallet', subs: ['本薪', '兼職'] }, { name: '獎金', icon: 'gift', subs: ['年終', '分紅'] }, { name: '投資', icon: 'trending-up', subs: ['股息', '價差'] }, { name: '零用錢', icon: 'coins', subs: [] }, { name: '其他', icon: 'more-horizontal', subs: [] } ]
         };
-
         const AVAILABLE_ICONS = ['utensils', 'coffee', 'beer', 'shopping-cart', 'shopping-bag', 'gift', 'bus', 'car', 'plane', 'bed', 'map', 'home', 'zap', 'wifi', 'phone', 'hammer', 'film', 'gamepad-2', 'music', 'camera', 'ticket', 'stethoscope', 'pill', 'heart', 'graduation-cap', 'book', 'briefcase', 'smile', 'frown', 'star', 'tag', 'dumbbell', 'more-horizontal'];
-
-        const ACCOUNT_TYPES = {
-            'cash': { label: '現金', iconName: 'coins', color: 'text-emerald-600 bg-emerald-50' },
-            'bank': { label: '銀行', iconName: 'landmark', color: 'text-blue-600 bg-blue-50' },
-            'credit': { label: '信用卡', iconName: 'credit-card', color: 'text-purple-600 bg-purple-50' },
-            'electronic': { label: '電子貨幣', iconName: 'smartphone-nfc', color: 'text-sky-600 bg-sky-50' },
-            'invest': { label: '投資理財', iconName: 'trending-up', color: 'text-rose-600 bg-rose-50' },
-            'payable': { label: '應付帳款', iconName: 'file-minus', color: 'text-orange-600 bg-orange-50' },
-            'receivable': { label: '應收帳款', iconName: 'file-plus', color: 'text-teal-600 bg-teal-50' },
-            'other': { label: '其它', iconName: 'wallet', color: 'text-slate-600 bg-slate-100' }
-        };
-
+        const ACCOUNT_TYPES = { 'cash': { label: '現金', iconName: 'coins', color: 'text-emerald-600 bg-emerald-50' }, 'bank': { label: '銀行', iconName: 'landmark', color: 'text-blue-600 bg-blue-50' }, 'credit': { label: '信用卡', iconName: 'credit-card', color: 'text-purple-600 bg-purple-50' }, 'electronic': { label: '電子貨幣', iconName: 'smartphone-nfc', color: 'text-sky-600 bg-sky-50' }, 'invest': { label: '投資理財', iconName: 'trending-up', color: 'text-rose-600 bg-rose-50' }, 'payable': { label: '應付帳款', iconName: 'file-minus', color: 'text-orange-600 bg-orange-50' }, 'receivable': { label: '應收帳款', iconName: 'file-plus', color: 'text-teal-600 bg-teal-50' }, 'other': { label: '其它', iconName: 'wallet', color: 'text-slate-600 bg-slate-100' } };
         const CATEGORY_COLORS = { '飲食': '#f59e0b', '交通': '#3b82f6', '購物': '#ec4899', '娛樂': '#a855f7', '居住': '#6366f1', '醫療': '#ef4444', '教育': '#22c55e', '薪資': '#10b981', '獎金': '#eab308', '投資': '#14b8a6', '轉帳': '#64748b', '代墊': '#8b5cf6', '還款': '#10b981', '自動繳款': '#94a3b8', '運動': '#f97316' };
-
         const CURRENCIES = ['TWD', 'USD', 'JPY', 'EUR', 'CNY', 'HKD', 'KRW', 'AUD', 'CAD', 'GBP', 'SGD', 'CHF'];
-        
-        const DEFAULT_RATES = {
-            'TWD': 1, 'USD': 32.5, 'JPY': 0.22, 'EUR': 35.0, 'CNY': 4.5, 'HKD': 4.1, 
-            'KRW': 0.024, 'AUD': 21.5, 'CAD': 24.0, 'GBP': 41.0, 'SGD': 24.2, 'CHF': 36.5
-        };
-
-        const MILESTONES = [
-            { amount: 100000, title: '第一桶金', icon: 'sprout', color: 'text-emerald-600', bg: 'bg-emerald-50' },
-            { amount: 500000, title: '積少成多', icon: 'coins', color: 'text-teal-600', bg: 'bg-teal-50' },
-            { amount: 1000000, title: '百萬富翁', icon: 'gem', color: 'text-sky-600', bg: 'bg-sky-50' },
-            { amount: 3000000, title: '資產小成', icon: 'award', color: 'text-indigo-600', bg: 'bg-indigo-50' },
-            { amount: 5000000, title: '半個千萬', icon: 'trophy', color: 'text-purple-600', bg: 'bg-purple-50' },
-            { amount: 10000000, title: '千萬富豪', icon: 'crown', color: 'text-amber-600', bg: 'bg-amber-50' },
-        ];
+        const DEFAULT_RATES = { 'TWD': 1, 'USD': 32.5, 'JPY': 0.22, 'EUR': 35.0, 'CNY': 4.5, 'HKD': 4.1, 'KRW': 0.024, 'AUD': 21.5, 'CAD': 24.0, 'GBP': 41.0, 'SGD': 24.2, 'CHF': 36.5 };
+        const MILESTONES = [ { amount: 100000, title: '第一桶金', icon: 'sprout', color: 'text-emerald-600', bg: 'bg-emerald-50' }, { amount: 500000, title: '積少成多', icon: 'coins', color: 'text-teal-600', bg: 'bg-teal-50' }, { amount: 1000000, title: '百萬富翁', icon: 'gem', color: 'text-sky-600', bg: 'bg-sky-50' }, { amount: 3000000, title: '資產小成', icon: 'award', color: 'text-indigo-600', bg: 'bg-indigo-50' }, { amount: 5000000, title: '半個千萬', icon: 'trophy', color: 'text-purple-600', bg: 'bg-purple-50' }, { amount: 10000000, title: '千萬富豪', icon: 'crown', color: 'text-amber-600', bg: 'bg-amber-50' } ];
 
         function App() {
             const [sdkReady, setSdkReady] = useState(false);
@@ -192,7 +121,6 @@
             const [activeTab, setActiveTab] = useState('home');
             const [error, setError] = useState(null);
             
-            // View States
             const [currentLedgerMonth, setCurrentLedgerMonth] = useState(getLocalMonth());
             const [analysisMode, setAnalysisMode] = useState('month'); 
             const [analysisType, setAnalysisType] = useState('expense');
@@ -209,7 +137,6 @@
             const dbRef = useRef(null);
             const appId = 'my-cloud-ledger-pro';
 
-            // Data States
             const [transactions, setTransactions] = useState([]);
             const [accounts, setAccounts] = useState([]);
             const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
@@ -221,7 +148,6 @@
             const [currentBook, setCurrentBook] = useState({ id: 'main', name: '日常帳本', currency: 'TWD' }); 
             const [books, setBooks] = useState([]);
 
-            // Modal States
             const [isTxModalOpen, setIsTxModalOpen] = useState(false);
             const [isAccModalOpen, setIsAccModalOpen] = useState(false);
             const [isRecModalOpen, setIsRecModalOpen] = useState(false);
@@ -234,7 +160,6 @@
             const [isBookModalOpen, setIsBookModalOpen] = useState(false);
             const [isBookSelectOpen, setIsBookSelectOpen] = useState(false);
 
-            // Form States
             const [targetMarketAccount, setTargetMarketAccount] = useState(null);
             const [newMarketValue, setNewMarketValue] = useState('');
             const [settleTargetTx, setSettleTargetTx] = useState(null);
@@ -251,7 +176,7 @@
             const [bookForm, setBookForm] = useState({ name: '', currency: 'TWD', startDate: '', endDate: '' });
             const [recForm, setRecForm] = useState({ name: '', type: 'expense', amount: '', category: '', accountId: '', toAccountId: '', day: new Date().getDate() });
 
-            // --- Initialization Logic ---
+            // --- Initialization ---
             useEffect(() => {
                 const initFirebase = () => {
                     if (window.isFirebaseSDKReady && window.FirebaseSDK) {
@@ -261,9 +186,7 @@
                                 config = JSON.parse(window.__firebase_config);
                             } else {
                                 const localConfig = localStorage.getItem('my_ledger_firebase_config');
-                                if (localConfig) {
-                                    config = JSON.parse(localConfig);
-                                }
+                                if (localConfig) config = JSON.parse(localConfig);
                             }
 
                             if (config) {
@@ -274,7 +197,7 @@
                                     dbRef.current = window.FirebaseSDK.getFirestore(app);
                                     setSdkReady(true);
                                 } catch(initErr) {
-                                    console.error("Firebase Init Failed:", initErr);
+                                    console.error("Init Error", initErr);
                                     setNeedConfig(true); 
                                     setLoading(false);
                                 }
@@ -283,7 +206,6 @@
                                 setLoading(false);
                             }
                         } catch (e) {
-                            console.error("Firebase Setup Error:", e);
                             setNeedConfig(true);
                             setLoading(false);
                         }
@@ -296,59 +218,55 @@
 
             const handleSaveConfig = () => {
                 try {
-                    // 自動清理：移除可能的 'const firebaseConfig =' 前綴和結尾的分號
                     let cleanedInput = configInput.trim();
                     if (cleanedInput.includes("const firebaseConfig") || cleanedInput.includes("var firebaseConfig")) {
                          const firstBrace = cleanedInput.indexOf('{');
                          if (firstBrace !== -1) cleanedInput = cleanedInput.substring(firstBrace);
                     }
                     if (cleanedInput.endsWith(";")) cleanedInput = cleanedInput.slice(0, -1).trim();
-
-                    // 智慧修正：自動幫 key 加上雙引號
                     cleanedInput = cleanedInput.replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":');
-                    // 移除陣列或物件最後多餘的逗號 (Trailing commas)
                     cleanedInput = cleanedInput.replace(/,\s*}/g, '}');
                     cleanedInput = cleanedInput.replace(/,\s*]/g, ']');
 
                     const config = JSON.parse(cleanedInput);
-                    if (!config.apiKey || !config.projectId) throw new Error("設定缺少必要欄位 (apiKey 或 projectId)");
+                    if (!config.apiKey || !config.projectId) throw new Error("缺少必要欄位");
                     localStorage.setItem('my_ledger_firebase_config', JSON.stringify(config));
                     window.location.reload();
                 } catch (e) {
-                    setError({ title: "設定無效", message: "請確認您複製的是 JSON 格式。\n\n錯誤訊息：" + e.message });
+                    setError({ title: "設定無效", message: "請確認您複製的是 JSON 格式。" });
                 }
             };
             
-            // Timeout Watchdog
+            const resetApp = () => {
+                localStorage.removeItem('my_ledger_firebase_config');
+                window.location.reload();
+            };
+
+            // Watchdog
             useEffect(() => {
                 const timer = setTimeout(() => {
                     if (loading && !needConfig) {
                         setLoading(false);
                         setError({
-                            title: "連線逾時 (Connection Timeout)",
-                            message: "系統連線過久，可能是因為：\n1. 您尚未在 Firebase Console 開啟「Authentication > 匿名登入 (Anonymous)」。\n2. 您的網路環境阻擋了 Google 連線。\n3. API Key 設定有誤。\n\n請檢查後重新整理頁面，或點擊下方按鈕重設。"
+                            title: "連線逾時",
+                            message: "系統連線過久，可能是：\n1. 未開啟「匿名登入」。\n2. 網域未授權 (Github Pages 需加入 Authorized domains)。\n3. API Key 錯誤。"
                         });
                     }
                 }, 15000); 
                 return () => clearTimeout(timer);
             }, [loading, needConfig]);
 
-            // Auth Listener (Improved Error Handling)
+            // Auth
             useEffect(() => {
                 if (!sdkReady) return;
                 const auth = authRef.current;
                 const unsub = fbRef.current.onAuthStateChanged(auth, async (u) => {
-                    if (u) {
-                        setUser(u);
-                    } else {
-                        try {
-                            await fbRef.current.signInAnonymously(auth);
-                        } catch (e) {
-                            console.error("Auth Error:", e);
+                    if (u) setUser(u);
+                    else {
+                        try { await fbRef.current.signInAnonymously(auth); } 
+                        catch (e) { 
                             let msg = e.message;
-                            if (e.code === 'auth/admin-restricted-operation' || e.code === 'auth/operation-not-allowed') {
-                                msg = "偵測到您尚未開啟「匿名登入」功能。\n\n請前往 Firebase Console > Authentication > Sign-in method，將「Anonymous」設為啟用。";
-                            }
+                            if (e.code === 'auth/admin-restricted-operation' || e.code === 'auth/operation-not-allowed') msg = "請至 Firebase Console 開啟「匿名登入 (Anonymous)」功能。";
                             setError({ title: "登入失敗", message: msg });
                             setLoading(false); 
                         }
@@ -357,28 +275,21 @@
                 return () => unsub();
             }, [sdkReady]);
             
-            // Google Login Handler
             const handleGoogleLogin = async () => {
-                try {
-                    await fbRef.current.signInWithPopup(authRef.current, new fbRef.current.GoogleAuthProvider());
-                } catch (e) {
+                try { await fbRef.current.signInWithPopup(authRef.current, new fbRef.current.GoogleAuthProvider()); } 
+                catch (e) {
                     let msg = e.message;
-                    let title = "登入錯誤";
-                    if (e.code === 'auth/unauthorized-domain') {
-                        title = "網域未授權";
-                        msg = `Google 登入不支援直接開啟檔案 (file://) 或未授權的網域。\n\n若您希望使用 Google 登入同步資料，請將此檔案上傳至 GitHub Pages 或其他網頁空間，並將網域加入 Firebase Console。`;
-                    } else if (e.code === 'auth/popup-closed-by-user') {
-                        msg = "登入視窗已關閉";
-                    }
-                    setError({ title, message: msg });
+                    if (e.code === 'auth/unauthorized-domain') msg = `請將 ${window.location.hostname} 加入 Firebase Console > Authentication > Settings > Authorized domains`;
+                    setError({ title: "登入錯誤", message: msg });
                 }
             };
 
-            // --- Data Subscriptions & Logic ---
+            // Data & Logic (CheckAutoPayment MOVED INSIDE EFFECT)
             useEffect(() => {
                 if (!user || !sdkReady) return;
                 const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
                 
+                // Helper defined inside effect to avoid scope/definition issues
                 const runAutoPaymentCheck = async (accountsList) => {
                     const currentMonthStr = getLocalMonth();
                     const creditCards = accountsList.filter(a => a.type === 'credit' && a.autoPayment && a.autoPaymentAccount);
@@ -395,36 +306,26 @@
                         if (today.getDate() >= dueDay) {
                             const newTxRef = fbRef.current.doc(txCol);
                             batch.set(newTxRef, {
-                                type: 'transfer', 
-                                amount: 0, 
-                                category: '自動繳款',
-                                accountId: card.autoPaymentAccount, 
-                                toAccountId: card.id,
-                                date: getLocalToday(), 
-                                bookId: 'main', 
-                                note: `[系統] 信用卡費繳款 (${card.name})`, 
-                                createdAt: new Date().toISOString()
+                                type: 'transfer', amount: 0, category: '自動繳款',
+                                accountId: card.autoPaymentAccount, toAccountId: card.id,
+                                date: getLocalToday(), bookId: 'main', 
+                                note: `[系統] 信用卡費繳款 (${card.name})`, createdAt: new Date().toISOString()
                             });
-                            
                             const cardRef = fbRef.current.doc(userRef, 'accounts', card.id);
                             batch.update(cardRef, { lastAutoPaymentMonth: currentMonthStr });
                             hasUpdates = true;
                         }
                     });
-                    
                     if (hasUpdates) await batch.commit();
                 };
 
                 const unsubs = [
-                    fbRef.current.onSnapshot(fbRef.current.collection(userRef, 'transactions'), snap => 
-                        setTransactions(snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => new Date(b.date)-new Date(a.date)))),
-                    
+                    fbRef.current.onSnapshot(fbRef.current.collection(userRef, 'transactions'), snap => setTransactions(snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => new Date(b.date)-new Date(a.date)))),
                     fbRef.current.onSnapshot(fbRef.current.collection(userRef, 'accounts'), snap => {
                         const accs = snap.docs.map(d => ({id: d.id, ...d.data()}));
                         setAccounts(accs);
                         runAutoPaymentCheck(accs);
                     }),
-                    
                     fbRef.current.onSnapshot(fbRef.current.doc(userRef, 'settings', 'config'), doc => {
                         if (doc.exists()) {
                             const data = doc.data().categories;
@@ -437,97 +338,28 @@
                             if (doc.data().budget) setMonthlyBudget(doc.data().budget);
                         } else fbRef.current.setDoc(fbRef.current.doc(userRef, 'settings', 'config'), { categories: DEFAULT_CATEGORIES }, {merge: true});
                     }),
-
-                    fbRef.current.onSnapshot(fbRef.current.doc(userRef, 'settings', 'rates'), doc => {
-                        if (doc.exists()) setExchangeRates(doc.data());
-                        else fbRef.current.setDoc(fbRef.current.doc(userRef, 'settings', 'rates'), DEFAULT_RATES, {merge: true});
-                    }),
-
-                    fbRef.current.onSnapshot(fbRef.current.doc(userRef, 'settings', 'retirement'), doc => {
-                        if (doc.exists()) setRetirement(doc.data());
-                        else fbRef.current.setDoc(fbRef.current.doc(userRef, 'settings', 'retirement'), retirement, {merge: true});
-                    }),
-
-                    fbRef.current.onSnapshot(fbRef.current.collection(userRef, 'recurring'), snap => 
-                        setRecurring(snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => (a.day || 0) - (b.day || 0)))),
-
-                    fbRef.current.onSnapshot(fbRef.current.collection(userRef, 'books'), snap => {
-                        const loadedBooks = snap.docs.map(d => ({id: d.id, ...d.data()}));
-                        setBooks([{ id: 'main', name: '日常帳本', currency: 'TWD' }, ...loadedBooks]);
-                    })
+                    fbRef.current.onSnapshot(fbRef.current.doc(userRef, 'settings', 'rates'), doc => { if (doc.exists()) setExchangeRates(doc.data()); else fbRef.current.setDoc(fbRef.current.doc(userRef, 'settings', 'rates'), DEFAULT_RATES, {merge: true}); }),
+                    fbRef.current.onSnapshot(fbRef.current.doc(userRef, 'settings', 'retirement'), doc => { if (doc.exists()) setRetirement(doc.data()); else fbRef.current.setDoc(fbRef.current.doc(userRef, 'settings', 'retirement'), retirement, {merge: true}); }),
+                    fbRef.current.onSnapshot(fbRef.current.collection(userRef, 'recurring'), snap => setRecurring(snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => (a.day || 0) - (b.day || 0)))),
+                    fbRef.current.onSnapshot(fbRef.current.collection(userRef, 'books'), snap => { const loadedBooks = snap.docs.map(d => ({id: d.id, ...d.data()})); setBooks([{ id: 'main', name: '日常帳本', currency: 'TWD' }, ...loadedBooks]); })
                 ];
-
                 setLoading(false);
                 return () => unsubs.forEach(unsub => unsub());
             }, [user, sdkReady]);
 
-            // --- Logic & Calculations ---
-            const getCategoryIcon = (catName, type) => {
-                if (!categories[type]) return 'tag';
-                const cat = categories[type].find(c => c.name === catName);
-                return cat ? cat.icon : 'tag';
-            };
+            // UI Helpers
+            const getCategoryIcon = (catName, type) => { if (!categories[type]) return 'tag'; const cat = categories[type].find(c => c.name === catName); return cat ? cat.icon : 'tag'; };
+            const isCrossCurrencyTransfer = useMemo(() => { if (txForm.type !== 'transfer' || !txForm.accountId || !txForm.toAccountId) return false; const source = accounts.find(a => a.id === txForm.accountId); const dest = accounts.find(a => a.id === txForm.toAccountId); return source && dest && source.currency !== dest.currency; }, [txForm.type, txForm.accountId, txForm.toAccountId, accounts]);
+            const isCreditCardPayment = useMemo(() => { if (!txForm.accountId) return false; const acc = accounts.find(a => a.id === txForm.accountId); return acc && acc.type === 'credit' && txForm.type === 'expense'; }, [txForm.accountId, txForm.type, accounts]);
+            const changeMonth = (offset) => { const [year, month] = currentLedgerMonth.split('-').map(Number); const newDate = new Date(year, month - 1 + offset, 1); const newYear = newDate.getFullYear(); const newMonth = String(newDate.getMonth() + 1).padStart(2, '0'); setCurrentLedgerMonth(`${newYear}-${newMonth}`); };
+            const changeAnalysisDate = (offset) => { if (analysisMode === 'month') { const [year, month] = analysisDate.split('-').map(Number); const newDate = new Date(year, month - 1 + offset, 1); const newYear = newDate.getFullYear(); const newMonth = String(newDate.getMonth() + 1).padStart(2, '0'); setAnalysisDate(`${newYear}-${newMonth}`); } else if (analysisMode === 'year') { setAnalysisYear(String(parseInt(analysisYear) + offset)); } setSelectedCategory(null); };
+            const switchBook = (book) => { setCurrentBook(book); if (book.startDate) { setCurrentLedgerMonth(book.startDate.slice(0, 7)); setTxForm(prev => ({ ...prev, date: book.startDate })); } else { setCurrentLedgerMonth(getLocalMonth()); setTxForm(prev => ({ ...prev, date: getLocalToday() })); } setIsBookSelectOpen(false); };
 
-            const isCrossCurrencyTransfer = useMemo(() => {
-                if (txForm.type !== 'transfer' || !txForm.accountId || !txForm.toAccountId) return false;
-                const source = accounts.find(a => a.id === txForm.accountId);
-                const dest = accounts.find(a => a.id === txForm.toAccountId);
-                return source && dest && source.currency !== dest.currency;
-            }, [txForm.type, txForm.accountId, txForm.toAccountId, accounts]);
-            
-            const isCreditCardPayment = useMemo(() => {
-                if (!txForm.accountId) return false;
-                const acc = accounts.find(a => a.id === txForm.accountId);
-                return acc && acc.type === 'credit' && txForm.type === 'expense';
-            }, [txForm.accountId, txForm.type, accounts]);
-
-            const changeMonth = (offset) => {
-                const [year, month] = currentLedgerMonth.split('-').map(Number);
-                const newDate = new Date(year, month - 1 + offset, 1);
-                const newYear = newDate.getFullYear();
-                const newMonth = String(newDate.getMonth() + 1).padStart(2, '0');
-                setCurrentLedgerMonth(`${newYear}-${newMonth}`);
-            };
-            
-            const changeAnalysisDate = (offset) => {
-                if (analysisMode === 'month') {
-                    const [year, month] = analysisDate.split('-').map(Number);
-                    const newDate = new Date(year, month - 1 + offset, 1);
-                    const newYear = newDate.getFullYear();
-                    const newMonth = String(newDate.getMonth() + 1).padStart(2, '0');
-                    setAnalysisDate(`${newYear}-${newMonth}`);
-                } else if (analysisMode === 'year') {
-                    setAnalysisYear(String(parseInt(analysisYear) + offset));
-                }
-                setSelectedCategory(null);
-            };
-
-            const switchBook = (book) => {
-                setCurrentBook(book);
-                if (book.startDate) {
-                    setCurrentLedgerMonth(book.startDate.slice(0, 7));
-                    setTxForm(prev => ({ ...prev, date: book.startDate }));
-                } else {
-                    setCurrentLedgerMonth(getLocalMonth());
-                    setTxForm(prev => ({ ...prev, date: getLocalToday() }));
-                }
-                setIsBookSelectOpen(false);
-            };
-
+            // Calculations
             const { accountBalances, stats, outstandingDebt, monthlyTransactions, bookStats } = useMemo(() => {
-                const bals = {};
-                accounts.forEach(acc => bals[acc.id] = parseFloat(acc.initialBalance) || 0);
-                
-                let totalAsset = 0; 
-                let monthIncome = 0; 
-                let monthExpense = 0;
-                let outstanding = 0;
-                let bookTotalExpenseTWD = 0;
-                let bookTotalExpenseForeign = 0;
-
-                const targetMonth = currentLedgerMonth; 
-                const monthTx = [];
-                const currentBookId = currentBook.id;
+                const bals = {}; accounts.forEach(acc => bals[acc.id] = parseFloat(acc.initialBalance) || 0);
+                let totalAsset = 0, monthIncome = 0, monthExpense = 0, outstanding = 0, bookTotalExpenseTWD = 0, bookTotalExpenseForeign = 0;
+                const targetMonth = currentLedgerMonth; const monthTx = []; const currentBookId = currentBook.id;
 
                 transactions.forEach(tx => {
                     const amt = parseFloat(tx.amount) || 0; 
@@ -538,139 +370,38 @@
                         const inAmt = tx.toAmount ? parseFloat(tx.toAmount) : amt;
                         if (bals[tx.toAccountId]!==undefined) bals[tx.toAccountId] += inAmt;
                     }
-
                     const txBookId = tx.bookId || 'main';
                     if (txBookId === currentBookId) {
                         const txMonth = tx.date.substring(0, 7);
                         if (txMonth === targetMonth || (currentBook.id !== 'main' && currentBook.startDate && tx.date >= currentBook.startDate && tx.date <= currentBook.endDate)) {
                             monthTx.push(tx); 
-                            
                             if (tx.type === 'income') monthIncome += amt;
                             if (tx.type === 'expense') {
                                 monthExpense += amt; 
-                                if (currentBook.currency !== 'TWD' && tx.currency === currentBook.currency) {
-                                    bookTotalExpenseForeign += (tx.foreignAmount || 0);
-                                }
+                                if (currentBook.currency !== 'TWD' && tx.currency === currentBook.currency) { bookTotalExpenseForeign += (tx.foreignAmount || 0); }
                                 bookTotalExpenseTWD += amt;
                             }
                         }
                         if (tx.type === 'advance' && !tx.isSettled) outstanding += amt;
                     }
                 });
-
-                // Total Asset Calculation (with Market Value Logic)
-                accounts.forEach(acc => { 
-                    if (acc.includeInTotal) {
-                        let val = 0;
-                        if (acc.type === 'invest' && acc.marketValue) {
-                            val = parseFloat(acc.marketValue);
-                        } else {
-                            val = bals[acc.id] || 0;
-                        }
-
-                        if (acc.currency !== 'TWD') {
-                            const rate = exchangeRates[acc.currency] || 1;
-                            val = val * rate;
-                        }
-                        totalAsset += val;
-                    }
-                });
-
-                return { 
-                    accountBalances: bals, 
-                    stats: { totalAsset, monthIncome, monthExpense }, 
-                    outstandingDebt: outstanding, 
-                    monthlyTransactions: monthTx, 
-                    bookStats: { twd: bookTotalExpenseTWD, foreign: bookTotalExpenseForeign }
-                };
+                accounts.forEach(acc => { if (acc.includeInTotal) { let val = 0; if (acc.type === 'invest' && acc.marketValue) val = parseFloat(acc.marketValue); else val = bals[acc.id] || 0; if (acc.currency !== 'TWD') { const rate = exchangeRates[acc.currency] || 1; val = val * rate; } totalAsset += val; } });
+                return { accountBalances: bals, stats: { totalAsset, monthIncome, monthExpense }, outstandingDebt: outstanding, monthlyTransactions: monthTx, bookStats: { twd: bookTotalExpenseTWD, foreign: bookTotalExpenseForeign } };
             }, [accounts, transactions, currentLedgerMonth, currentBook, exchangeRates]);
 
-            const retirementStats = useMemo(() => {
-                const yearsToRetire = Math.max(0, retirement.retireAge - retirement.currentAge);
-                const futureMonthly = retirement.monthlyExpense * Math.pow(1 + (retirement.inflation / 100), yearsToRetire);
-                const targetAmount = futureMonthly * 12 * 25;
-                const progress = Math.min(100, Math.max(0, (stats.totalAsset / targetAmount) * 100));
-                return { targetAmount, progress, yearsToRetire, futureMonthly };
-            }, [retirement, stats.totalAsset]);
-
-            const analysisData = useMemo(() => {
-                const bookTxs = transactions.filter(tx => (tx.bookId || 'main') === currentBook.id);
-                let filteredTx = [];
-                if (analysisMode === 'month') {
-                    filteredTx = bookTxs.filter(t => t.date.substring(0, 7) === analysisDate);
-                }
-                else if (analysisMode === 'year') {
-                    filteredTx = bookTxs.filter(t => t.date.substring(0, 4) === analysisYear);
-                }
-                else {
-                    filteredTx = bookTxs.filter(t => t.date >= analysisRange.start && t.date <= analysisRange.end);
-                }
-
-                const expenseTx = filteredTx.filter(t => t.type === 'expense');
-                const totalExpense = expenseTx.reduce((sum, t) => sum + (parseFloat(t.amount)||0), 0);
-                const expenseByCategory = {};
-                expenseTx.forEach(t => {
-                    const key = (analysisGroupBy === 'sub' && t.subCategory) ? t.subCategory : t.category;
-                    expenseByCategory[key] = (expenseByCategory[key] || 0) + parseFloat(t.amount);
-                });
-                const expenseChartData = Object.entries(expenseByCategory)
-                    .map(([name, value]) => ({ 
-                        name, value, 
-                        color: CATEGORY_COLORS[name] || CATEGORY_COLORS[Object.keys(categories.expense.find(c=>c.subs&&c.subs.includes(name))||{})[0]] || '#94a3b8', 
-                        percent: totalExpense ? (value / totalExpense) * 100 : 0 
-                    }))
-                    .sort((a,b) => b.value - a.value);
-
-                const incomeTx = filteredTx.filter(t => t.type === 'income');
-                const totalIncome = incomeTx.reduce((sum, t) => sum + (parseFloat(t.amount)||0), 0);
-                const incomeByCategory = {};
-                incomeTx.forEach(t => {
-                    const key = (analysisGroupBy === 'sub' && t.subCategory) ? t.subCategory : t.category;
-                    incomeByCategory[key] = (incomeByCategory[key] || 0) + parseFloat(t.amount);
-                });
-                const incomeChartData = Object.entries(incomeByCategory)
-                    .map(([name, value]) => ({ 
-                        name, value, 
-                        color: CATEGORY_COLORS[name] || '#94a3b8', 
-                        percent: totalIncome ? (value / totalIncome) * 100 : 0 
-                    }))
-                    .sort((a,b) => b.value - a.value);
-
-                return { totalExpense, expenseChartData, totalIncome, incomeChartData, filteredTx };
-            }, [transactions, analysisMode, analysisDate, analysisYear, analysisRange, currentBook, analysisGroupBy, categories]);
-
-            const homeInsight = useMemo(() => {
-                if (!currentLedgerMonth) return null;
-                const [curY, curM] = currentLedgerMonth.split('-').map(Number);
-                const prevDate = new Date(curY, curM - 2, 1);
-                const prevMonthStr = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
-                
-                const calcExpense = (monthStr) => transactions.reduce((sum, tx) => {
-                    if (tx.date.startsWith(monthStr) && tx.type === 'expense' && (tx.bookId === 'main' || !tx.bookId)) return sum + (parseFloat(tx.amount) || 0);
-                    return sum;
-                }, 0);
-
-                const prevMonthExpense = calcExpense(prevMonthStr);
-                const currentMonthExpense = calcExpense(currentLedgerMonth);
-
-                if (monthlyBudget > 0 && currentMonthExpense > monthlyBudget) return { type: 'danger', icon: 'alert-triangle', text: `⚠️ 本月支出 $${currentMonthExpense.toLocaleString()} 已超過預算 $${monthlyBudget.toLocaleString()}！`, color: 'text-rose-600', bg: 'bg-rose-50 border-rose-200' };
-                if (prevMonthExpense > 0 && currentMonthExpense > prevMonthExpense) return { type: 'warning', icon: 'arrow-up-right', text: `📈 本月支出比上個月增加了 $${(currentMonthExpense - prevMonthExpense).toLocaleString()}，請留意開銷。`, color: 'text-amber-600', bg: 'bg-amber-50 border-amber-200' };
-                if (prevMonthExpense > 0 && currentMonthExpense < prevMonthExpense) return { type: 'success', icon: 'thumbs-up', text: `🎉 很棒！本月支出比上個月少了 $${(prevMonthExpense - currentMonthExpense).toLocaleString()}，繼續保持！`, color: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-200' };
-                return { type: 'neutral', icon: 'info', text: `本月預算 $${monthlyBudget.toLocaleString()}，目前使用了 ${Math.round((currentMonthExpense/monthlyBudget)*100)}%`, color: 'text-slate-600', bg: 'bg-slate-50 border-slate-200' };
-            }, [transactions, currentLedgerMonth, monthlyBudget]);
-
-            const retirementInsight = useMemo(() => {
-                if (!currentLedgerMonth) return null;
-                const savings = stats.monthIncome - stats.monthExpense;
-                const target = retirement.monthlyExpense;
-                if (savings < 0) return { icon: 'alert-triangle', text: `⚠️ 本月目前透支，資產縮水中，這會延後您的退休計畫喔！`, color: 'text-rose-600', bg: 'bg-rose-100' };
-                if (savings < target) return { icon: 'target', text: `🎯 本月結餘 $${savings.toLocaleString()}，距離退休目標月存額還有差距，加油！`, color: 'text-amber-600', bg: 'bg-amber-100' };
-                return { icon: 'party-popper', text: `🚀 太棒了！本月儲蓄力超標，正加速邁向財務自由！`, color: 'text-emerald-600', bg: 'bg-emerald-100' };
-            }, [stats, retirement, currentLedgerMonth]);
+            const retirementStats = useMemo(() => { const yearsToRetire = Math.max(0, retirement.retireAge - retirement.currentAge); const futureMonthly = retirement.monthlyExpense * Math.pow(1 + (retirement.inflation / 100), yearsToRetire); const targetAmount = futureMonthly * 12 * 25; const progress = Math.min(100, Math.max(0, (stats.totalAsset / targetAmount) * 100)); return { targetAmount, progress, yearsToRetire, futureMonthly }; }, [retirement, stats.totalAsset]);
+            const analysisData = useMemo(() => { const bookTxs = transactions.filter(tx => (tx.bookId || 'main') === currentBook.id); let filteredTx = []; if (analysisMode === 'month') { filteredTx = bookTxs.filter(t => t.date.substring(0, 7) === analysisDate); } else if (analysisMode === 'year') { filteredTx = bookTxs.filter(t => t.date.substring(0, 4) === analysisYear); } else { filteredTx = bookTxs.filter(t => t.date >= analysisRange.start && t.date <= analysisRange.end); } const expenseTx = filteredTx.filter(t => t.type === 'expense'); const totalExpense = expenseTx.reduce((sum, t) => sum + (parseFloat(t.amount)||0), 0); const expenseByCategory = {}; expenseTx.forEach(t => { const key = (analysisGroupBy === 'sub' && t.subCategory) ? t.subCategory : t.category; expenseByCategory[key] = (expenseByCategory[key] || 0) + parseFloat(t.amount); }); const expenseChartData = Object.entries(expenseByCategory).map(([name, value]) => ({ name, value, color: CATEGORY_COLORS[name] || CATEGORY_COLORS[Object.keys(categories.expense.find(c=>c.subs&&c.subs.includes(name))||{})[0]] || '#94a3b8', percent: totalExpense ? (value / totalExpense) * 100 : 0 })).sort((a,b) => b.value - a.value); const incomeTx = filteredTx.filter(t => t.type === 'income'); const totalIncome = incomeTx.reduce((sum, t) => sum + (parseFloat(t.amount)||0), 0); const incomeByCategory = {}; incomeTx.forEach(t => { const key = (analysisGroupBy === 'sub' && t.subCategory) ? t.subCategory : t.category; incomeByCategory[key] = (incomeByCategory[key] || 0) + parseFloat(t.amount); }); const incomeChartData = Object.entries(incomeByCategory).map(([name, value]) => ({ name, value, color: CATEGORY_COLORS[name] || '#94a3b8', percent: totalIncome ? (value / totalIncome) * 100 : 0 })).sort((a,b) => b.value - a.value); return { totalExpense, expenseChartData, totalIncome, incomeChartData, filteredTx }; }, [transactions, analysisMode, analysisDate, analysisYear, analysisRange, currentBook, analysisGroupBy, categories]);
+            const homeInsight = useMemo(() => { if (!currentLedgerMonth) return null; const savings = stats.monthIncome - stats.monthExpense; const diff = savings - (retirement.monthlyExpense || 0); const monthName = parseInt(currentLedgerMonth.split('-')[1]) + '月'; if (savings < 0) return { type: 'danger', icon: 'alert-triangle', text: `⚠️ ${monthName} 透支 $${Math.abs(savings).toLocaleString()}`, color: 'text-rose-600', bg: 'bg-rose-50 border-rose-200' }; if (monthlyBudget > 0 && stats.monthExpense > monthlyBudget) return { type: 'danger', icon: 'alert-triangle', text: `⚠️ 支出已超預算！`, color: 'text-rose-600', bg: 'bg-rose-50 border-rose-200' }; return { type: 'neutral', icon: 'info', text: `本月預算 $${monthlyBudget.toLocaleString()}，目前使用了 ${Math.round((stats.monthExpense/monthlyBudget)*100)}%`, color: 'text-slate-600', bg: 'bg-slate-50 border-slate-200' }; }, [stats, currentLedgerMonth, monthlyBudget]);
+            const retirementInsight = useMemo(() => { if (!currentLedgerMonth) return null; const savings = stats.monthIncome - stats.monthExpense; const target = retirement.monthlyExpense; if (savings < 0) return { icon: 'alert-triangle', text: `⚠️ 本月透支，資產縮水中！`, color: 'text-rose-600', bg: 'bg-rose-100' }; if (savings < target) return { icon: 'target', text: `🎯 離月存額目標還有差距，加油！`, color: 'text-amber-600', bg: 'bg-amber-100' }; return { icon: 'party-popper', text: `🚀 太棒了！儲蓄力超標！`, color: 'text-emerald-600', bg: 'bg-emerald-100' }; }, [stats, retirement, currentLedgerMonth]);
 
             // --- Handlers ---
-            const handleTxSubmit = async (e) => { e.preventDefault(); const twdAmount = parseFloat(txForm.amount); const foreignAmount = parseFloat(txForm.foreignAmount) || 0; if (!twdAmount || !txForm.accountId) return; const batch = fbRef.current.writeBatch(dbRef.current); const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid); const txCol = fbRef.current.collection(userRef, 'transactions'); const bookId = currentBook.id; const baseTxData = { accountId: txForm.accountId, date: txForm.date, note: txForm.note, bookId: bookId, createdAt: new Date().toISOString(), currency: txForm.currency, foreignAmount: foreignAmount > 0 ? foreignAmount : null, exchangeRate: foreignAmount > 0 ? (twdAmount / foreignAmount) : 1 }; if (txForm.type === 'expense' && installment.enabled && isCreditCardPayment) { const periods = parseInt(installment.periods)||3; const amountPerMonth = Math.round(twdAmount/periods); const remainder = twdAmount - (amountPerMonth*periods); for(let i=0;i<periods;i++){ const currentMonthAmount = i===0 ? amountPerMonth+remainder : amountPerMonth; let installmentDate; if(i===0){ installmentDate=txForm.date; }else{ const [y,m,d]=txForm.date.split('-').map(Number); const nextDate=new Date(y,m-1+i,1); installmentDate=`${nextDate.getFullYear()}-${String(nextDate.getMonth()+1).padStart(2,'0')}-01`; } let finalCategory=txForm.category; if(!finalCategory){ if(categories[txForm.type] && categories[txForm.type].length>0) finalCategory=categories[txForm.type][0].name; else finalCategory='未分類'; } batch.set(fbRef.current.doc(txCol), { ...baseTxData, date: installmentDate, amount: currentMonthAmount, type: 'expense', category: finalCategory, subCategory: txForm.subCategory, note: `${txForm.note||''} (分期 ${i+1}/${periods})` }); } } else if (txForm.type === 'expense' && isAdvanceSplit) { let totalAdvanceTWD = 0; const validAdvances = splitData.advances.filter(a => a.debtor && a.amount); validAdvances.forEach(a => totalAdvanceTWD += parseFloat(a.amount)); if (totalAdvanceTWD > twdAmount) return; const myExpense = twdAmount - totalAdvanceTWD; if (myExpense > 0) { batch.set(fbRef.current.doc(txCol), { ...baseTxData, type: 'expense', amount: myExpense, category: txForm.category || categories.expense[0].name, subCategory: txForm.subCategory }); } validAdvances.forEach(adv => { batch.set(fbRef.current.doc(txCol), { ...baseTxData, type: 'advance', amount: parseFloat(adv.amount), category: '代墊', note: `代買: ${txForm.note || '商品'}`, debtor: adv.debtor, isSettled: false, foreignAmount: null }); }); } else if (txForm.type === 'income' && isAdvanceSplit) { const principal = parseFloat(splitData.principalAmount) || 0; const gain = twdAmount - principal; if (principal > 0) { batch.set(fbRef.current.doc(txCol), { ...baseTxData, type: 'transfer', amount: principal, category: '轉帳', accountId: splitData.sourceAccountId, toAccountId: txForm.accountId, note: `投資本金收回` }); } if (gain !== 0) { batch.set(fbRef.current.doc(txCol), { ...baseTxData, type: 'income', amount: gain, category: txForm.category || '投資', note: `投資獲利` }); } } else { let finalCategory = txForm.category; if (!finalCategory) { if (txForm.type === 'transfer') finalCategory = '轉帳'; else if (categories[txForm.type] && categories[txForm.type].length > 0) finalCategory = categories[txForm.type][0].name; else finalCategory = '未分類'; } const txData = { ...baseTxData, type: txForm.type, category: finalCategory, subCategory: txForm.subCategory, amount: twdAmount }; if (isCrossCurrencyTransfer) { txData.toAmount = parseFloat(txForm.toAmount); } batch.set(fbRef.current.doc(txCol), txData); } await batch.commit(); setIsTxModalOpen(false); resetTxForm(); };
+            const updateAdvanceRow = (index, field, value) => { const newAdvances = [...splitData.advances]; newAdvances[index][field] = value; setSplitData({...splitData, advances: newAdvances}); };
+            const addAdvanceRow = () => { setSplitData({...splitData, advances: [...splitData.advances, { debtor: '', amount: '' }]}); };
+            const removeAdvanceRow = (index) => { const newAdvances = splitData.advances.filter((_, i) => i !== index); setSplitData({...splitData, advances: newAdvances}); };
+            
+            const handleTxSubmit = async (e) => { e.preventDefault(); const twdAmount = parseFloat(txForm.amount); const foreignAmount = parseFloat(txForm.foreignAmount) || 0; if (!twdAmount || !txForm.accountId) return; const batch = fbRef.current.writeBatch(dbRef.current); const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid); const txCol = fbRef.current.collection(userRef, 'transactions'); const bookId = currentBook.id; const baseTxData = { accountId: txForm.accountId, date: txForm.date, note: txForm.note, bookId: bookId, createdAt: new Date().toISOString(), currency: txForm.currency, foreignAmount: foreignAmount > 0 ? foreignAmount : null, exchangeRate: foreignAmount > 0 ? (twdAmount / foreignAmount) : 1 }; if (txForm.type === 'expense' && installment.enabled && isCreditCardPayment) { const periods = parseInt(installment.periods)||3; const amountPerMonth = Math.round(twdAmount/periods); const remainder = twdAmount - (amountPerMonth*periods); for(let i=0;i<periods;i++){ const currentMonthAmount = i===0 ? amountPerMonth+remainder : amountPerMonth; const installmentDate = addMonthsToDate(txForm.date, i); let finalCategory=txForm.category; if(!finalCategory){ if(categories[txForm.type] && categories[txForm.type].length>0) finalCategory=categories[txForm.type][0].name; else finalCategory='未分類'; } batch.set(fbRef.current.doc(txCol), { ...baseTxData, date: installmentDate, amount: currentMonthAmount, type: 'expense', category: finalCategory, subCategory: txForm.subCategory, note: `${txForm.note||''} (分期 ${i+1}/${periods})` }); } } else if (txForm.type === 'expense' && isAdvanceSplit) { let totalAdvanceTWD = 0; const validAdvances = splitData.advances.filter(a => a.debtor && a.amount); validAdvances.forEach(a => totalAdvanceTWD += parseFloat(a.amount)); if (totalAdvanceTWD > twdAmount) return; const myExpense = twdAmount - totalAdvanceTWD; if (myExpense > 0) { batch.set(fbRef.current.doc(txCol), { ...baseTxData, type: 'expense', amount: myExpense, category: txForm.category || categories.expense[0].name, subCategory: txForm.subCategory }); } validAdvances.forEach(adv => { batch.set(fbRef.current.doc(txCol), { ...baseTxData, type: 'advance', amount: parseFloat(adv.amount), category: '代墊', note: `代買: ${txForm.note || '商品'}`, debtor: adv.debtor, isSettled: false, foreignAmount: null }); }); } else if (txForm.type === 'income' && isAdvanceSplit) { const principal = parseFloat(splitData.principalAmount) || 0; const gain = twdAmount - principal; if (principal > 0) { batch.set(fbRef.current.doc(txCol), { ...baseTxData, type: 'transfer', amount: principal, category: '轉帳', accountId: splitData.sourceAccountId, toAccountId: txForm.accountId, note: `投資本金收回` }); } if (gain !== 0) { batch.set(fbRef.current.doc(txCol), { ...baseTxData, type: 'income', amount: gain, category: txForm.category || '投資', note: `投資獲利` }); } } else { let finalCategory = txForm.category; if (!finalCategory) { if (txForm.type === 'transfer') finalCategory = '轉帳'; else if (categories[txForm.type] && categories[txForm.type].length > 0) finalCategory = categories[txForm.type][0].name; else finalCategory = '未分類'; } const txData = { ...baseTxData, type: txForm.type, category: finalCategory, subCategory: txForm.subCategory, amount: twdAmount }; if (isCrossCurrencyTransfer) { txData.toAmount = parseFloat(txForm.toAmount); } batch.set(fbRef.current.doc(txCol), txData); } await batch.commit(); setIsTxModalOpen(false); resetTxForm(); };
             const resetTxForm = () => { setTxForm({ type: 'expense', amount: '', foreignAmount: '', toAmount: '', category: '', subCategory: '', accountId: '', toAccountId: '', debtor: '', date: (currentBook.startDate && currentBook.id !== 'main') ? currentBook.startDate : getLocalToday(), note: '', currency: currentBook.currency }); setIsAdvanceSplit(false); setInstallment({ enabled: false, periods: 3 }); setSplitData({ advances: [{ debtor: '', amount: '' }], principalAmount: '', sourceAccountId: '' }); };
+            
             const handleBookSubmit = async (e) => { e.preventDefault(); if(!bookForm.name) return; await fbRef.current.addDoc(fbRef.current.collection(dbRef.current, 'artifacts', appId, 'users', user.uid, 'books'), { ...bookForm, createdAt: new Date().toISOString() }); setIsBookModalOpen(false); setBookForm({ name: '', currency: 'TWD', startDate: '', endDate: '' }); };
             const handleSettle = async (e) => { e.preventDefault(); if (!settleTargetTx || !settleToAccount) return; const batch = fbRef.current.writeBatch(dbRef.current); const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid); batch.update(fbRef.current.doc(userRef, 'transactions', settleTargetTx.id), { isSettled: true, settledDate: new Date().toISOString().split('T')[0] }); batch.set(fbRef.current.doc(fbRef.current.collection(userRef, 'transactions')), { type: 'repayment', amount: parseFloat(settleTargetTx.amount), category: '還款', accountId: settleToAccount, date: new Date().toISOString().split('T')[0], note: `收回: ${settleTargetTx.debtor}`, relatedTxId: settleTargetTx.id, bookId: 'main', createdAt: new Date().toISOString() }); await batch.commit(); setIsSettleModalOpen(false); setSettleTargetTx(null); setSettleToAccount(''); };
             const handleAccSubmit = async (e) => { e.preventDefault(); if (!accForm.name) return; await fbRef.current.addDoc(fbRef.current.collection(dbRef.current, 'artifacts', appId, 'users', user.uid, 'accounts'), { ...accForm, createdAt: new Date().toISOString() }); setIsAccModalOpen(false); setAccForm({ name: '', type: 'cash', currency: 'TWD', initialBalance: '', includeInTotal: true, closingDay: '27', paymentDueDay: '15', autoPaymentAccount: '', holidayAdjustment: 'defer', autoPayment: false }); };
@@ -684,9 +415,6 @@
             const handleDeleteSubCategory = async (mainCatName, subName) => { const newCats = { ...categories }; const catIndex = newCats[editingCategoryType].findIndex(c => c.name === mainCatName); if (catIndex > -1) { newCats[editingCategoryType][catIndex].subs = newCats[editingCategoryType][catIndex].subs.filter(s => s !== subName); await fbRef.current.updateDoc(fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid, 'settings', 'config'), { categories: newCats }); } };
             const deleteItem = async (col, id) => { await fbRef.current.deleteDoc(fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid, col, id)); };
             const applyRecurring = (rec) => { const today = new Date(); const targetDay = Math.min(parseInt(rec.day||today.getDate()), new Date(today.getFullYear(), today.getMonth()+1, 0).getDate()); setTxForm({ type: rec.type, amount: rec.amount, category: rec.category||categories[rec.type][0].name, accountId: rec.accountId||'', toAccountId: rec.toAccountId||'', date: `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(targetDay).padStart(2,'0')}`, note: rec.name, currency: 'TWD' }); setActiveTab('home'); setIsTxModalOpen(true); };
-            const updateAdvanceRow = (index, field, value) => { const newAdvances = [...splitData.advances]; newAdvances[index][field] = value; setSplitData({...splitData, advances: newAdvances}); };
-            const addAdvanceRow = () => { setSplitData({...splitData, advances: [...splitData.advances, { debtor: '', amount: '' }]}); };
-            const removeAdvanceRow = (index) => { const newAdvances = splitData.advances.filter((_, i) => i !== index); setSplitData({...splitData, advances: newAdvances}); };
             const handleUpdateMarketValue = async (e) => { e.preventDefault(); if (!targetMarketAccount) return; const accRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid, 'accounts', targetMarketAccount.id); await fbRef.current.updateDoc(accRef, { marketValue: parseFloat(newMarketValue) || 0 }); setIsMarketValueModalOpen(false); setNewMarketValue(''); };
             const openMarketValueModal = (acc) => { setTargetMarketAccount(acc); setNewMarketValue(acc.marketValue || ''); setIsMarketValueModalOpen(true); };
 
@@ -707,7 +435,7 @@
                                         <h3 className="font-bold text-xl text-red-500 mb-2">{error.title}</h3>
                                         <p className="text-stone-600 mb-6 whitespace-pre-wrap">{error.message}</p>
                                         <button onClick={()=>setError(null)} className="w-full bg-slate-800 text-white py-3 rounded-xl font-bold hover:bg-slate-700">我知道了</button>
-                                        <button onClick={()=>{localStorage.removeItem('my_ledger_firebase_config');window.location.reload();}} className="w-full bg-stone-100 text-stone-500 py-3 rounded-xl font-bold mt-2 hover:bg-stone-200">重設 Firebase 設定</button>
+                                        <button onClick={resetApp} className="w-full bg-stone-100 text-stone-500 py-3 rounded-xl font-bold mt-2 hover:bg-stone-200">重設 Firebase 設定</button>
                                     </div>
                                 </div>
                             )}
@@ -717,9 +445,6 @@
             }
 
             if (!sdkReady || loading) return <div className="h-screen flex items-center justify-center bg-gray-50"><Icon name="loader-2" className="animate-spin text-slate-500" size={40}/></div>;
-
-            const chartData = analysisType === 'expense' ? analysisData.expenseChartData : analysisData.incomeChartData;
-            const totalAmount = analysisType === 'expense' ? analysisData.totalExpense : analysisData.totalIncome;
 
             return (
                 <div className="min-h-screen pb-24 max-w-xl mx-auto bg-slate-50 relative">
@@ -765,7 +490,7 @@
                         </div>
                     )}
                     
-                    {/* Book Creation Modal (RESTORED) */}
+                    {/* Book Creation Modal */}
                     {isBookModalOpen && (
                         <div className="fixed inset-0 z-[80] bg-slate-900/60 backdrop-blur-sm flex flex-col justify-end sm:justify-center p-4">
                              <div className="bg-white w-full max-w-sm mx-auto rounded-xl p-6 shadow-2xl animate-in slide-in-from-bottom">
@@ -789,16 +514,17 @@
                         </div>
                     )}
 
-                    {/* Simplified Settle Modal */}
+                    {/* Settle Modal */}
                     {isSettleModalOpen && <div className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"><div className="bg-white w-full max-w-md rounded-t-[2rem] sm:rounded-[2rem] p-8 animate-in slide-in-from-bottom"><h3 className="font-bold text-2xl mb-2 text-stone-800">收回代墊款</h3><p className="text-stone-500 mb-6">從 <span className="font-bold text-stone-800">{settleTargetTx?.debtor}</span> 收回 ${settleTargetTx?.amount}</p><form onSubmit={handleSettle} className="space-y-6"><div><p className="text-xs font-bold text-stone-400 uppercase ml-2 mb-2">存入帳戶</p><select required className="w-full bg-stone-50 p-4 rounded-xl text-base font-bold outline-none text-stone-700 border border-gray-200" value={settleToAccount} onChange={e=>setSettleToAccount(e.target.value)}><option value="" disabled>選擇帳戶</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div><button type="submit" className="w-full bg-emerald-600 text-white py-5 rounded-xl font-bold text-xl shadow-lg shadow-emerald-200 hover:bg-emerald-700">確認收款</button><button type="button" onClick={()=>{setIsSettleModalOpen(false);setSettleTargetTx(null)}} className="w-full bg-slate-100 text-slate-500 py-4 rounded-xl font-bold hover:bg-slate-200">取消</button></form></div></div>}
-                    {/* Simplified Rec Modal */}
+                    
+                    {/* Rec Modal */}
                     {isRecModalOpen && <div className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"><div className="bg-white w-full max-w-md rounded-t-[2rem] sm:rounded-[2rem] p-8 animate-in slide-in-from-bottom"><div className="flex justify-between mb-8"><h3 className="font-bold text-2xl text-stone-800">新增固定項目</h3><button onClick={()=>setIsRecModalOpen(false)} className="bg-stone-100 p-2 rounded-full text-stone-500 hover:bg-stone-200"><Icon name="x" size={24}/></button></div><form onSubmit={handleRecSubmit} className="space-y-6"><div className="bg-stone-100 p-1 rounded-xl flex"> {[{id:'expense',l:'支出'},{id:'income',l:'收入'},{id:'transfer',l:'轉帳'}].map(t => (<button key={t.id} type="button" onClick={()=>setRecForm({...recForm, type:t.id, category: t.id==='transfer'?'轉帳':categories[t.id][0].name})} className={`flex-1 py-3 rounded-lg text-base font-bold transition-all ${recForm.type===t.id?'bg-white shadow text-slate-600':'text-slate-500'}`}>{t.l}</button>))} </div><div className="flex gap-4"><input type="text" required placeholder="項目名稱 (如: 房租)" className="flex-1 bg-stone-50 p-4 rounded-xl font-bold outline-none text-base border border-gray-200" value={recForm.name} onChange={e=>setRecForm({...recForm, name:e.target.value})}/><div className="w-32 bg-stone-50 rounded-xl p-2 border border-gray-200"><p className="text-xs font-bold text-slate-400 uppercase mb-1 ml-1">每月幾號</p><select className="w-full bg-transparent font-bold outline-none text-base text-stone-700" value={recForm.day} onChange={e=>setRecForm({...recForm, day:e.target.value})}>{[...Array(31)].map((_, i) => <option key={i+1} value={i+1}>{i+1} 號</option>)}</select></div></div><input type="number" required placeholder="金額" className="w-full bg-stone-50 p-4 rounded-xl font-bold outline-none text-xl border border-gray-200 tabular-nums" value={recForm.amount} onChange={e=>setRecForm({...recForm, amount:e.target.value})}/>{recForm.type !== 'transfer' ? (<><div><p className="text-xs font-bold text-stone-400 uppercase ml-2 mb-2">類別</p><div className="flex flex-wrap gap-3 max-h-40 overflow-y-auto">{categories[recForm.type] && categories[recForm.type].map(c => <button key={c.name} type="button" onClick={()=>setRecForm({...recForm, category:c.name})} className={`px-4 py-2 rounded-lg text-sm font-bold border ${recForm.category===c.name?'bg-blue-600 text-white border-blue-600':'bg-white border-stone-200 text-stone-500'}`}>{c.name}</button>)}</div></div><div><p className="text-xs font-bold text-stone-400 uppercase ml-2 mb-2">預設扣款帳戶 (選填)</p><select className="w-full bg-stone-50 p-4 rounded-xl text-base font-bold outline-none text-stone-700 border border-gray-200" value={recForm.accountId} onChange={e=>setRecForm({...recForm, accountId:e.target.value})}><option value="">不指定 (每次詢問)</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div></>) : (<div className="grid grid-cols-2 gap-4"><div><p className="text-xs font-bold text-stone-400 uppercase ml-2 mb-2">轉出帳戶</p><select required className="w-full bg-stone-50 p-4 rounded-xl text-base font-bold outline-none" value={recForm.accountId} onChange={e=>setRecForm({...recForm, accountId:e.target.value})}><option value="" disabled>選擇帳戶</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div><div><p className="text-xs font-bold text-stone-400 uppercase ml-2 mb-2">轉入帳戶</p><select required className="w-full bg-stone-50 p-4 rounded-xl text-base font-bold outline-none" value={recForm.toAccountId} onChange={e=>setRecForm({...recForm, toAccountId:e.target.value})}><option value="" disabled>選擇帳戶</option>{accounts.filter(a=>a.id!==recForm.accountId).map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div></div>)}<button type="submit" className="w-full bg-slate-600 text-white py-5 rounded-xl font-bold text-xl shadow-lg hover:bg-slate-700">新增固定項目</button></form></div></div>}
-                    {/* Simplified Acc Modal */}
+                    {/* Acc Modal */}
                     {isAccModalOpen && <div className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"><div className="bg-white w-full max-w-md rounded-t-[2rem] sm:rounded-[2rem] p-8 animate-in slide-in-from-bottom"><div className="flex justify-between mb-8"><h3 className="font-bold text-2xl text-stone-800">新增帳戶</h3><button onClick={()=>setIsAccModalOpen(false)} className="bg-stone-100 p-2 rounded-full text-stone-500"><Icon name="x" size={24}/></button></div><form onSubmit={handleAccSubmit} className="space-y-6"><input type="text" required placeholder="帳戶名稱 (例如: 玉山銀行)" className="w-full bg-stone-50 p-4 rounded-xl font-bold text-base border border-gray-200" value={accForm.name} onChange={e=>setAccForm({...accForm, name:e.target.value})}/><div className="space-y-2"><p className="text-xs font-bold text-stone-400 ml-1">類型</p><select className="w-full bg-stone-50 p-4 rounded-xl font-bold text-base border border-gray-200" value={accForm.type} onChange={e=>setAccForm({...accForm, type:e.target.value})}>{Object.entries(ACCOUNT_TYPES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></div><div className="flex gap-4"><div className="flex-1"><p className="text-xs font-bold text-stone-400 mb-2 ml-1">初始餘額</p><input type="number" required placeholder="0" className="w-full bg-stone-50 p-4 rounded-xl font-bold text-base border border-gray-200 tabular-nums" value={accForm.initialBalance} onChange={e=>setAccForm({...accForm, initialBalance:e.target.value})}/></div><div className="w-28"><p className="text-xs font-bold text-stone-400 mb-2 ml-1">幣別</p><select className="w-full bg-stone-50 p-4 rounded-xl font-bold text-base border border-gray-200" value={accForm.currency} onChange={e=>setAccForm({...accForm, currency:e.target.value})}><option value="TWD">TWD</option><option value="USD">USD</option><option value="JPY">JPY</option></select></div></div><button type="submit" className="w-full bg-blue-600 text-white py-5 rounded-xl font-bold text-xl shadow-lg hover:bg-blue-700">建立帳戶</button></form></div></div>}
-                    {/* Simplified Retire Modal */}
+                    {/* Retire Modal */}
                     {isRetireModalOpen && <div className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"><div className="bg-white w-full max-w-md rounded-t-[2rem] sm:rounded-[2rem] p-8 animate-in slide-in-from-bottom"><h3 className="font-bold text-2xl mb-8 text-slate-800">退休設定</h3><form onSubmit={handleRetireSubmit} className="space-y-6"><input type="number" required placeholder="目前年齡" className="w-full bg-stone-50 p-4 rounded-xl font-bold border border-gray-200 tabular-nums" value={retireForm.currentAge} onChange={e=>setRetireForm({...retireForm, currentAge:e.target.value})}/><input type="number" required placeholder="退休年齡" className="w-full bg-stone-50 p-4 rounded-xl font-bold border border-gray-200 tabular-nums" value={retireForm.retireAge} onChange={e=>setRetireForm({...retireForm, retireAge:e.target.value})}/><input type="number" required placeholder="月花費" className="w-full bg-stone-50 p-4 rounded-xl font-bold border border-gray-200 tabular-nums" value={retireForm.monthlyExpense} onChange={e=>setRetireForm({...retireForm, monthlyExpense:e.target.value})}/><input type="number" required placeholder="通膨率" className="w-full bg-stone-50 p-4 rounded-xl font-bold border border-gray-200 tabular-nums" value={retireForm.inflation} onChange={e=>setRetireForm({...retireForm, inflation:e.target.value})}/><button type="submit" className="w-full bg-amber-500 text-white py-5 rounded-xl font-bold text-xl shadow-lg">儲存</button></form></div></div>}
                     
-                    {error && <div className="fixed inset-0 z-[60] bg-stone-900/50 flex items-center justify-center p-4"><div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100"><h3 className="font-bold text-xl text-rose-500 mb-2">{error.title}</h3><p className="text-stone-600 mb-6 whitespace-pre-wrap">{error.message}</p><button onClick={()=>setError(null)} className="w-full bg-stone-800 text-white py-3 rounded-xl font-bold hover:bg-stone-700">我知道了</button><button onClick={()=>{localStorage.removeItem('my_ledger_firebase_config');window.location.reload();}} className="w-full bg-stone-100 text-stone-500 py-3 rounded-xl font-bold mt-2 hover:bg-stone-200">重設 Firebase 設定</button></div></div>}
+                    {error && <div className="fixed inset-0 z-[60] bg-stone-900/50 flex items-center justify-center p-4"><div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100"><h3 className="font-bold text-xl text-rose-500 mb-2">{error.title}</h3><p className="text-stone-600 mb-6 whitespace-pre-wrap">{error.message}</p><button onClick={()=>setError(null)} className="w-full bg-stone-800 text-white py-3 rounded-xl font-bold hover:bg-stone-700">我知道了</button><button onClick={resetApp} className="w-full bg-stone-100 text-stone-500 py-3 rounded-xl font-bold mt-2 hover:bg-stone-200">重設 Firebase 設定</button></div></div>}
                 </div>
             );
         }
