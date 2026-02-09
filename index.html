@@ -37,18 +37,13 @@
                 ctx.font = 'bold 300px "Noto Sans TC", sans-serif';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                // 微調文字位置，使其垂直居中
                 ctx.fillText('帳', 256, 270);
 
                 var iconUrl = canvas.toDataURL('image/png');
-
-                // 設定 iOS 圖示
                 var linkApple = document.createElement('link');
                 linkApple.rel = 'apple-touch-icon';
                 linkApple.href = iconUrl;
                 document.head.appendChild(linkApple);
-
-                // 設定瀏覽器分頁圖示
                 var linkFavicon = document.createElement('link');
                 linkFavicon.rel = 'icon';
                 linkFavicon.type = 'image/png';
@@ -71,15 +66,12 @@
         body { 
             font-family: 'Inter', 'Noto Sans TC', sans-serif; 
             -webkit-tap-highlight-color: transparent; 
-            /* 避免 iOS 下拉回彈露出白色背景 */
             overscroll-behavior-y: none;
         }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .animate-in { animation: fadeIn 0.3s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .tabular-nums { font-variant-numeric: tabular-nums; }
-        
-        /* PWA 安全區域設定 (避開瀏海與 Home Bar) */
         .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
         .pt-safe { padding-top: env(safe-area-inset-top); }
     </style>
@@ -93,7 +85,6 @@
         import { getFirestore, collection, doc, onSnapshot, addDoc, deleteDoc, updateDoc, setDoc, query, where, writeBatch, getDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
         import { getAuth, signInAnonymously, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
         
-        // 將 SDK 函式掛載到 window，供 React 組件使用
         window.FirebaseSDK = { 
             initializeApp, getFirestore, collection, doc, onSnapshot, addDoc, deleteDoc, 
             updateDoc, setDoc, query, where, writeBatch, getDoc, getAuth, 
@@ -130,7 +121,7 @@
             return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
         };
 
-        // Helper: Add Months to date (Correctly handles year rollover)
+        // Helper: Add Months to date
         const addMonthsToDate = (dateStr, months) => {
             const [y, m, d] = dateStr.split('-').map(Number);
             const newDate = new Date(y, m - 1 + months, 1);
@@ -189,7 +180,7 @@
             { amount: 1000000, title: '百萬富翁', icon: 'gem', color: 'text-sky-600', bg: 'bg-sky-50' },
             { amount: 3000000, title: '資產小成', icon: 'award', color: 'text-indigo-600', bg: 'bg-indigo-50' },
             { amount: 5000000, title: '半個千萬', icon: 'trophy', color: 'text-purple-600', bg: 'bg-purple-50' },
-            { amount: 10000000, title: '千萬富豪', icon: 'crown', color: 'text-amber-600', bg: 'bg-amber-50' },
+            { amount: 10000000, title: '千萬富豪', icon: 'crown', color: 'text-amber-600', bg: 'bg-amber-100' },
         ];
 
         function App() {
@@ -265,12 +256,10 @@
                 const initFirebase = () => {
                     if (window.isFirebaseSDKReady && window.FirebaseSDK) {
                         try {
-                            // 1. Env Config
                             let config = null;
                             if (typeof window.__firebase_config !== 'undefined' && window.__firebase_config) {
                                 config = JSON.parse(window.__firebase_config);
                             } else {
-                                // 2. Local Config
                                 const localConfig = localStorage.getItem('my_ledger_firebase_config');
                                 if (localConfig) {
                                     config = JSON.parse(localConfig);
@@ -286,7 +275,7 @@
                                     setSdkReady(true);
                                 } catch(initErr) {
                                     console.error("Firebase Init Failed:", initErr);
-                                    setNeedConfig(true); // Re-prompt if init fails
+                                    setNeedConfig(true); 
                                     setLoading(false);
                                 }
                             } else {
@@ -361,7 +350,7 @@
                 return () => unsub();
             }, [sdkReady]);
             
-            // Google Login Handler with Better Error Message
+            // Google Login Handler
             const handleGoogleLogin = async () => {
                 try {
                     await fbRef.current.signInWithPopup(authRef.current, new fbRef.current.GoogleAuthProvider());
@@ -369,8 +358,8 @@
                     let msg = e.message;
                     let title = "登入錯誤";
                     if (e.code === 'auth/unauthorized-domain') {
-                        title = "網域未授權 (Unauthorized Domain)";
-                        msg = `Google 登入需要網域授權。\n\n請將目前網域：\n${window.location.hostname}\n\n加入到：\nFirebase Console > Authentication > Settings > Authorized domains`;
+                        title = "網域未授權";
+                        msg = `Google 登入不支援直接開啟檔案 (file://) 或未授權的網域。\n\n若您希望使用 Google 登入同步資料，請將此檔案上傳至 GitHub Pages 或其他網頁空間，並將網域加入 Firebase Console。`;
                     } else if (e.code === 'auth/popup-closed-by-user') {
                         msg = "登入視窗已關閉";
                     }
@@ -672,7 +661,7 @@
                 return { icon: 'party-popper', text: `🚀 太棒了！本月儲蓄力超標，正加速邁向財務自由！`, color: 'text-emerald-600', bg: 'bg-emerald-100' };
             }, [stats, retirement, currentLedgerMonth]);
 
-            // --- Handlers (Submit, Settle, etc.) ---
+            // --- Handlers ---
             const handleTxSubmit = async (e) => { e.preventDefault(); const twdAmount = parseFloat(txForm.amount); const foreignAmount = parseFloat(txForm.foreignAmount) || 0; if (!twdAmount || !txForm.accountId) return; const batch = fbRef.current.writeBatch(dbRef.current); const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid); const txCol = fbRef.current.collection(userRef, 'transactions'); const bookId = currentBook.id; const baseTxData = { accountId: txForm.accountId, date: txForm.date, note: txForm.note, bookId: bookId, createdAt: new Date().toISOString(), currency: txForm.currency, foreignAmount: foreignAmount > 0 ? foreignAmount : null, exchangeRate: foreignAmount > 0 ? (twdAmount / foreignAmount) : 1 }; if (txForm.type === 'expense' && installment.enabled && isCreditCardPayment) { const periods = parseInt(installment.periods)||3; const amountPerMonth = Math.round(twdAmount/periods); const remainder = twdAmount - (amountPerMonth*periods); for(let i=0;i<periods;i++){ const currentMonthAmount = i===0 ? amountPerMonth+remainder : amountPerMonth; let installmentDate; if(i===0){ installmentDate=txForm.date; }else{ const [y,m,d]=txForm.date.split('-').map(Number); const nextDate=new Date(y,m-1+i,1); installmentDate=`${nextDate.getFullYear()}-${String(nextDate.getMonth()+1).padStart(2,'0')}-01`; } let finalCategory=txForm.category; if(!finalCategory){ if(categories[txForm.type] && categories[txForm.type].length>0) finalCategory=categories[txForm.type][0].name; else finalCategory='未分類'; } batch.set(fbRef.current.doc(txCol), { ...baseTxData, date: installmentDate, amount: currentMonthAmount, type: 'expense', category: finalCategory, subCategory: txForm.subCategory, note: `${txForm.note||''} (分期 ${i+1}/${periods})` }); } } else if (txForm.type === 'expense' && isAdvanceSplit) { let totalAdvanceTWD = 0; const validAdvances = splitData.advances.filter(a => a.debtor && a.amount); validAdvances.forEach(a => totalAdvanceTWD += parseFloat(a.amount)); if (totalAdvanceTWD > twdAmount) return; const myExpense = twdAmount - totalAdvanceTWD; if (myExpense > 0) { batch.set(fbRef.current.doc(txCol), { ...baseTxData, type: 'expense', amount: myExpense, category: txForm.category || categories.expense[0].name, subCategory: txForm.subCategory }); } validAdvances.forEach(adv => { batch.set(fbRef.current.doc(txCol), { ...baseTxData, type: 'advance', amount: parseFloat(adv.amount), category: '代墊', note: `代買: ${txForm.note || '商品'}`, debtor: adv.debtor, isSettled: false, foreignAmount: null }); }); } else if (txForm.type === 'income' && isAdvanceSplit) { const principal = parseFloat(splitData.principalAmount) || 0; const gain = twdAmount - principal; if (principal > 0) { batch.set(fbRef.current.doc(txCol), { ...baseTxData, type: 'transfer', amount: principal, category: '轉帳', accountId: splitData.sourceAccountId, toAccountId: txForm.accountId, note: `投資本金收回` }); } if (gain !== 0) { batch.set(fbRef.current.doc(txCol), { ...baseTxData, type: 'income', amount: gain, category: txForm.category || '投資', note: `投資獲利` }); } } else { let finalCategory = txForm.category; if (!finalCategory) { if (txForm.type === 'transfer') finalCategory = '轉帳'; else if (categories[txForm.type] && categories[txForm.type].length > 0) finalCategory = categories[txForm.type][0].name; else finalCategory = '未分類'; } const txData = { ...baseTxData, type: txForm.type, category: finalCategory, subCategory: txForm.subCategory, amount: twdAmount }; if (isCrossCurrencyTransfer) { txData.toAmount = parseFloat(txForm.toAmount); } batch.set(fbRef.current.doc(txCol), txData); } await batch.commit(); setIsTxModalOpen(false); resetTxForm(); };
             const resetTxForm = () => { setTxForm({ type: 'expense', amount: '', foreignAmount: '', toAmount: '', category: '', subCategory: '', accountId: '', toAccountId: '', debtor: '', date: (currentBook.startDate && currentBook.id !== 'main') ? currentBook.startDate : getLocalToday(), note: '', currency: currentBook.currency }); setIsAdvanceSplit(false); setInstallment({ enabled: false, periods: 3 }); setSplitData({ advances: [{ debtor: '', amount: '' }], principalAmount: '', sourceAccountId: '' }); };
             const handleBookSubmit = async (e) => { e.preventDefault(); if(!bookForm.name) return; await fbRef.current.addDoc(fbRef.current.collection(dbRef.current, 'artifacts', appId, 'users', user.uid, 'books'), { ...bookForm, createdAt: new Date().toISOString() }); setIsBookModalOpen(false); setBookForm({ name: '', currency: 'TWD', startDate: '', endDate: '' }); };
@@ -737,7 +726,7 @@
                                 <p className="text-xs text-slate-500 font-medium">{currentBook.currency === 'TWD' ? '日常帳本' : '旅遊模式'}</p>
                             </div>
                         </div>
-                        {user?.isAnonymous ? <button onClick={handleGoogleLogin} className="text-sm font-bold text-slate-600 bg-slate-100 px-4 py-2 rounded-lg hover:bg-slate-200 transition-colors">登入綁定</button> : <div className="h-10 w-10 rounded-full overflow-hidden border-2 border-gray-200 shadow-sm"><img src={user.photoURL} alt="User"/></div>}
+                        {user?.isAnonymous ? <button onClick={handleGoogleLogin} className="text-sm font-bold text-slate-600 bg-slate-100 px-4 py-2 rounded-lg hover:bg-slate-200 transition-colors">登入綁定</button> : <div className="h-10 w-10 rounded-full overflow-hidden border-2 border-gray-200 shadow-sm"><img src={user.photoURL || 'https://via.placeholder.com/40'} alt="User"/></div>}
                     </header>
 
                     {/* Book Selector Overlay */}
