@@ -6,8 +6,6 @@
     <title>雲端帳本 Pro</title>
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="apple-mobile-web-app-title" content="雲端帳本">
-    <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#F8FAFC">
     <script>
         (function() {
@@ -74,6 +72,8 @@
         
         const CATEGORY_COLORS = { '飲食': '#f97316', '交通': '#3b82f6', '購物': '#ec4899', '娛樂': '#a855f7', '居住': '#6366f1', '醫療': '#ef4444', '教育': '#22c55e', '薪資': '#10b981', '獎金': '#eab308', '投資': '#f43f5e', '轉帳': '#64748b', '代墊': '#8b5cf6', '還款': '#10b981', '自動繳款': '#94a3b8', '運動': '#f59e0b' };
 
+        const AVAILABLE_ICONS = ['utensils', 'coffee', 'beer', 'shopping-cart', 'shopping-bag', 'gift', 'bus', 'car', 'plane', 'bed', 'map', 'home', 'zap', 'wifi', 'phone', 'hammer', 'film', 'gamepad-2', 'music', 'camera', 'ticket', 'stethoscope', 'pill', 'heart', 'graduation-cap', 'book', 'briefcase', 'smile', 'frown', 'star', 'tag', 'dumbbell', 'more-horizontal'];
+
         const NavBtn = ({icon, label, active, onClick}) => (
             <button onClick={onClick} className={`flex flex-col items-center justify-center w-full gap-1 ${active?'text-rose-600 scale-105':'text-stone-400 hover:text-stone-600'}`}>{icon}<span className="text-[10px] font-bold">{label}</span></button>
         );
@@ -136,6 +136,10 @@
             const authRef = useRef(null);
             const dbRef = useRef(null);
             const appId = 'my-cloud-ledger-pro';
+
+            // Drag and Drop
+            const dragItem = useRef(null);
+            const dragOverItem = useRef(null);
 
             useEffect(() => {
                 const init = () => {
@@ -211,7 +215,11 @@
 
                 const unsubs = [
                     fbRef.current.onSnapshot(fbRef.current.collection(userRef, 'transactions'), s => setTransactions(s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>new Date(b.date)-new Date(a.date)))),
-                    fbRef.current.onSnapshot(fbRef.current.collection(userRef, 'accounts'), s => { const a = s.docs.map(d=>({id:d.id,...d.data()})); setAccounts(a); checkAutoPay(a); }),
+                    fbRef.current.onSnapshot(fbRef.current.collection(userRef, 'accounts'), s => { 
+                        const a = s.docs.map(d=>({id:d.id,...d.data()})).sort((a, b) => (a.order || 0) - (b.order || 0)); 
+                        setAccounts(a); 
+                        checkAutoPay(a); 
+                    }),
                     fbRef.current.onSnapshot(fbRef.current.doc(userRef, 'settings', 'config'), d => { 
                         if(d.exists()) { 
                             const data = d.data();
@@ -318,6 +326,7 @@
                 return { total, chart, filteredTx: targetTx };
             }, [transactions, analysisMode, currentLedgerMonth, currentBook, analysisType, analysisGroupBy, categories]);
 
+            // Handlers
             const handleTxSave = () => {
                 const amt = parseFloat(txForm.amount);
                 if (!amt) { alert('請輸入金額'); return; }
@@ -362,24 +371,60 @@
             
             const handleAddSubCategory = async (mainCat, sub) => {
                 if(!sub) return;
+                // Optimistic Update
                 const newCats = {...categories};
                 const cat = newCats[editingCategoryType].find(c=>c.name===mainCat);
-                if(cat && !cat.subs.includes(sub)) { cat.subs.push(sub); await saveData('settings', {categories:newCats}, 'config'); }
+                if(cat && !cat.subs.includes(sub)) { 
+                    cat.subs.push(sub); 
+                    setCategories(newCats); // Immediate update
+                    await saveData('settings', {categories:newCats}, 'config'); 
+                }
             };
 
             const handleDeleteSubCategory = async (mainCat, sub) => {
                 const newCats = {...categories};
                 const cat = newCats[editingCategoryType].find(c=>c.name===mainCat);
-                if(cat) { cat.subs = cat.subs.filter(s => s !== sub); await saveData('settings', {categories:newCats}, 'config'); }
+                if(cat) { 
+                    cat.subs = cat.subs.filter(s => s !== sub); 
+                    setCategories(newCats); // Immediate update
+                    await saveData('settings', {categories:newCats}, 'config'); 
+                }
             };
             
             const handleAccSubmit = async (e) => {
                 e.preventDefault();
                 if (!accForm.name) return;
                 const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
-                if (editTarget) await fbRef.current.updateDoc(fbRef.current.doc(userRef, 'accounts', editTarget.id), accForm);
-                else await fbRef.current.addDoc(fbRef.current.collection(userRef, 'accounts'), { ...accForm, createdAt: new Date().toISOString() });
+                
+                const accountData = {
+                    ...accForm,
+                    order: editingAccount ? editingAccount.order : accounts.length
+                };
+
+                if (editingAccount) {
+                    await fbRef.current.updateDoc(fbRef.current.doc(userRef, 'accounts', editingAccount.id), accountData);
+                } else {
+                    await fbRef.current.addDoc(fbRef.current.collection(userRef, 'accounts'), { ...accountData, createdAt: new Date().toISOString() });
+                }
                 setModal(null);
+            };
+            
+            const handleSort = async () => {
+                if (dragItem.current === null || dragOverItem.current === null) return;
+                const _accounts = [...accounts];
+                const draggedItemContent = _accounts[dragItem.current];
+                _accounts.splice(dragItem.current, 1);
+                _accounts.splice(dragOverItem.current, 0, draggedItemContent);
+                dragItem.current = null;
+                dragOverItem.current = null;
+                setAccounts(_accounts);
+                const batch = fbRef.current.writeBatch(dbRef.current);
+                const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
+                _accounts.forEach((acc, index) => {
+                    const ref = fbRef.current.doc(userRef, 'accounts', acc.id);
+                    batch.update(ref, { order: index });
+                });
+                await batch.commit();
             };
 
             const handleUpdateMarketValue = async () => {
@@ -393,15 +438,20 @@
                  setMonthlyBudget(val);
                  saveData('settings', { budget: parseFloat(val) }, 'config');
             };
+
             const handleAddCategory = () => {
                 if(!newCatForm.name) return;
+                // Optimistic Update
                 const newCats = {...categories};
                 newCats[newCatForm.type].push({ name: newCatForm.name, icon: newCatForm.icon, subs: [] });
+                setCategories(newCats);
                 saveData('settings', {categories: newCats}, 'config');
             };
+
             const handleDeleteCategory = (catName) => {
                  const newCats = {...categories};
                  newCats[editingCategoryType] = newCats[editingCategoryType].filter(c => c.name !== catName);
+                 setCategories(newCats); // Immediate
                  saveData('settings', {categories: newCats}, 'config');
             };
             const handleRatesSubmit = () => {
@@ -430,6 +480,7 @@
                      ...txForm, 
                      type, 
                      category: categories[type] && categories[type].length > 0 ? categories[type][0].name : '',
+                     accountId: accounts.length > 0 ? accounts[0].id : '',
                      amount: '',
                      note: ''
                  });
@@ -445,6 +496,33 @@
                 const nm = String(date.getMonth() + 1).padStart(2, '0');
                 setCurrentLedgerMonth(`${ny}-${nm}`);
             };
+            
+            // Fix: Add ability to rename main category in Edit Modal
+            const handleEditMainCategoryName = async (newName) => {
+                if (!newName || !editingCategory) return;
+                const newCats = { ...categories };
+                const catIdx = newCats[editingCategoryType].findIndex(c => c.name === editingCategory.name);
+                if (catIdx > -1) {
+                    newCats[editingCategoryType][catIdx].name = newName;
+                    setCategories(newCats); // Optimistic
+                    setEditingCategory(newCats[editingCategoryType][catIdx]); // Update local state for modal
+                    await saveData('settings', { categories: newCats }, 'config');
+                }
+            };
+            
+            // Fix: Add ability to change icon
+             const handleEditMainCategoryIcon = async (newIcon) => {
+                if (!editingCategory) return;
+                const newCats = { ...categories };
+                const catIdx = newCats[editingCategoryType].findIndex(c => c.name === editingCategory.name);
+                if (catIdx > -1) {
+                    newCats[editingCategoryType][catIdx].icon = newIcon;
+                    setCategories(newCats);
+                    setEditingCategory(newCats[editingCategoryType][catIdx]);
+                    await saveData('settings', { categories: newCats }, 'config');
+                }
+            };
+
 
             if (needConfig) return (
                 <div className="min-h-screen bg-stone-50 flex items-center justify-center p-6"><div className="bg-white max-w-md w-full p-8 rounded-3xl shadow-xl"><div className="flex justify-center mb-6 text-stone-800"><Icon name="settings" size={48}/></div><h2 className="text-xl font-bold text-center mb-4">輸入 Firebase 設定</h2><textarea className="w-full h-48 p-4 bg-stone-50 rounded-xl text-xs font-mono mb-4 border" placeholder='{ "apiKey": "..." }' value={configInput} onChange={e=>setConfigInput(e.target.value)}/><button onClick={handleSaveConfig} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold">儲存</button></div></div>
@@ -507,20 +585,30 @@
                                         <span>{retirementInsight.text}</span>
                                     </div>
                                 </div>
-                                <div className="grid gap-3">{accounts.map(acc => (
-                                    <div key={acc.id} className="bg-white p-4 rounded-xl shadow-sm border border-stone-100 relative">
+                                <div className="grid gap-3">
+                                    {accounts.map((acc, index) => (
+                                    <div 
+                                        key={acc.id} 
+                                        className="bg-white p-4 rounded-xl shadow-sm border border-stone-100 relative cursor-move hover:shadow-md transition-shadow"
+                                        draggable
+                                        onDragStart={() => (dragItem.current = index)}
+                                        onDragEnter={() => (dragOverItem.current = index)}
+                                        onDragEnd={handleSort}
+                                        onDragOver={(e) => e.preventDefault()}
+                                    >
                                         <div className="absolute top-3 right-3 flex gap-2">
-                                            <button onClick={()=>{setEditTarget(acc); setAccForm(acc); setModal('acc')}} className="text-stone-400 hover:text-rose-500"><Icon name="edit-2" size={14}/></button>
+                                            <button onClick={()=>{setEditTarget(acc); openAccModal(acc);}} className="text-stone-400 hover:text-rose-500"><Icon name="edit-2" size={14}/></button>
                                             <button onClick={()=>deleteData('accounts', acc.id)} className="text-stone-400 hover:text-rose-600"><Icon name="trash-2" size={14}/></button>
                                         </div>
                                         <div className="flex gap-3 items-center mb-2">
+                                            <div className="text-stone-300 cursor-move"><Icon name="grip-vertical" size={16}/></div>
                                             <div className={`p-2 rounded-lg ${ACCOUNT_TYPES[acc.type]?.color || 'bg-stone-100 text-stone-600'}`}><Icon name={ACCOUNT_TYPES[acc.type]?.iconName || 'wallet'} size={18}/></div>
                                             <h3 className="font-bold text-stone-700">{acc.name}</h3>
                                         </div>
-                                        <p className="text-2xl font-black tabular-nums text-stone-800">${(acc.marketValue || stats.bals[acc.id]||0).toLocaleString()} <span className="text-xs text-stone-400 font-normal">{acc.currency}</span></p>
-                                        {acc.currency!=='TWD' && <p className="text-xs text-stone-400 font-bold tabular-nums">≈ TWD ${Math.round((acc.marketValue || stats.bals[acc.id]||0) * (exchangeRates[acc.currency]||1)).toLocaleString()}</p>}
+                                        <p className="text-2xl font-black tabular-nums text-stone-800 ml-7">${(acc.marketValue || stats.bals[acc.id]||0).toLocaleString()} <span className="text-xs text-stone-400 font-normal">{acc.currency}</span></p>
+                                        {acc.currency!=='TWD' && <p className="text-xs text-stone-400 font-bold tabular-nums ml-7">≈ TWD ${Math.round((acc.marketValue || stats.bals[acc.id]||0) * (exchangeRates[acc.currency]||1)).toLocaleString()}</p>}
                                         {acc.type === 'invest' && (
-                                            <div className="mt-2 pt-2 border-t flex justify-between items-center text-xs">
+                                            <div className="mt-2 pt-2 border-t flex justify-between items-center text-xs ml-7">
                                                 <span className="text-stone-400">成本: ${(stats.bals[acc.id]||0).toLocaleString()}</span>
                                                 <button onClick={()=>{setEditTarget(acc); setNewMarketValue(acc.marketValue||''); setModal('market')}} className="text-rose-500 font-bold bg-rose-50 px-2 py-1 rounded">調整市值</button>
                                             </div>
@@ -807,8 +895,8 @@
                                      ))}
                                  </div>
                                  <div className="mt-4 pt-4 border-t flex gap-2">
-                                     <input id="newCatName" placeholder="新類別名稱" className="flex-1 p-2 border rounded"/>
-                                     <button onClick={()=>{if(document.getElementById('newCatName').value) handleAddCategory();}} className="bg-blue-600 text-white px-4 rounded">新增</button>
+                                     <input id="newCatName" placeholder="新類別名稱" className="flex-1 p-2 border rounded" value={newCatForm.name} onChange={e=>setNewCatForm({...newCatForm, name:e.target.value, type:editingCategoryType})}/>
+                                     <button onClick={handleAddCategory} className="bg-blue-600 text-white px-4 rounded">新增</button>
                                  </div>
                                  <button onClick={()=>setModal(null)} className="w-full mt-4 text-stone-400">關閉</button>
                              </div>
@@ -819,7 +907,25 @@
                     {modal === 'editCat' && editingCategory && (
                          <div className="fixed inset-0 z-[210] bg-black/50 flex items-center justify-center p-4">
                              <div className="bg-white w-full max-w-sm p-6 rounded-2xl">
-                                 <h3 className="font-bold text-xl mb-4 flex items-center gap-2"><Icon name={editingCategory.icon}/> {editingCategory.name}</h3>
+                                 <div className="flex items-center gap-2 mb-4">
+                                    <Icon name={editingCategory.icon}/>
+                                    {/* Editable Main Category Name */}
+                                    <input 
+                                        className="font-bold text-xl bg-transparent border-b border-stone-300 focus:border-rose-500 outline-none w-full" 
+                                        value={editingCategory.name} 
+                                        onChange={(e) => handleEditMainCategoryName(e.target.value)}
+                                    />
+                                 </div>
+                                 
+                                 {/* Icon Selector (Simplified) */}
+                                 <div className="mb-4 h-24 overflow-y-auto grid grid-cols-6 gap-2 p-2 bg-stone-50 rounded">
+                                     {AVAILABLE_ICONS.map(icon => (
+                                         <button key={icon} onClick={() => handleEditMainCategoryIcon(icon)} className={`p-2 rounded hover:bg-stone-200 ${editingCategory.icon === icon ? 'bg-rose-100 text-rose-500' : 'text-stone-400'}`}>
+                                             <Icon name={icon} size={18}/>
+                                         </button>
+                                     ))}
+                                 </div>
+
                                  <div className="flex flex-wrap gap-2 mb-4">
                                      {editingCategory.subs.map(s=>(
                                          <span key={s} className="bg-stone-100 px-3 py-1 rounded-full text-sm flex items-center gap-1 text-stone-600">{s} <button onClick={()=>handleDeleteSubCategory(editingCategory.name, s)} className="text-red-400 hover:text-red-600"><Icon name="x" size={12}/></button></span>
@@ -829,7 +935,10 @@
                                      <input id="newSubCat" className="flex-1 border p-2 rounded" placeholder="新增子類別"/>
                                      <button onClick={()=>{handleAddSubCategory(editingCategory.name, document.getElementById('newSubCat').value); document.getElementById('newSubCat').value=''}} className="bg-rose-500 text-white px-4 rounded">新增</button>
                                  </div>
-                                 <button onClick={()=>setModal('cat')} className="w-full mt-4 text-stone-400">返回</button>
+                                 <div className="mt-4 pt-4 border-t border-stone-100">
+                                    <button onClick={()=>{handleDeleteCategory(editingCategory.name); setModal('cat');}} className="w-full text-red-500 text-sm py-2 hover:bg-red-50 rounded flex items-center justify-center gap-1"><Icon name="trash-2" size={14}/> 刪除此主類別</button>
+                                 </div>
+                                 <button onClick={()=>setModal('cat')} className="w-full mt-2 text-stone-400">返回</button>
                              </div>
                          </div>
                     )}
