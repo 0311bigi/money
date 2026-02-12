@@ -308,7 +308,9 @@
                         if (t.type==='transfer') { if(bals[t.accountId]!=null) bals[t.accountId]-=amt; if(bals[t.toAccountId]!=null) bals[t.toAccountId]+=(t.toAmount?parseFloat(t.toAmount):amt); }
                     }
                     
-                    if ((t.bookId||'main') === currentBook.id && t.date.startsWith(currentLedgerMonth)) {
+                    // 🟢 修改：加上 String(t.date || '') 保護
+                        const txDate = String(t.date || '');
+                        if ((t.bookId||'main') === currentBook.id && txDate.startsWith(currentLedgerMonth)) {
                         if (t.type==='income') inc+=amt;
                         if (t.type==='expense') exp+=amt;
                     }
@@ -366,7 +368,8 @@
             }, [transactions, analysisMode, currentLedgerMonth, currentBook, analysisType, analysisGroupBy, categories]);
 
             const groupedTransactions = useMemo(() => {
-                const targetTxs = transactions.filter(t => (t.bookId||'main')===currentBook.id && t.date.startsWith(currentLedgerMonth));
+                // 🟢 修改：將 t.date 轉為字串再檢查
+                const targetTxs = transactions.filter(t => (t.bookId||'main')===currentBook.id && String(t.date || '').startsWith(currentLedgerMonth));
                 const groups = {};
                 targetTxs.forEach(tx => {
                     if (!groups[tx.date]) groups[tx.date] = [];
@@ -400,7 +403,7 @@
                     return { ...t, balanceSnapshot: balance, change, displayType: type };
                 });
 
-                const monthTxs = withBalance.filter(t => t.date.startsWith(accountDetailMonth));
+                const monthTxs = withBalance.filter(t => String(t.date || '').startsWith(accountDetailMonth));
                 const displayList = [...monthTxs].sort((a, b) => {
                      const dateA = new Date(a.date).getTime();
                      const dateB = new Date(b.date).getTime();
@@ -573,7 +576,16 @@
                         // Process each row
                         jsonData.forEach(row => {
                             // Basic mapping (adjust keys based on export format)
-                            const date = row['日期'];
+                            // 🟢 修改：強制處理日期格式
+                            let date = row['日期'];
+                            // 如果 Excel 讀進來是數字 (例如 45334)，這裡需要處理，或者簡單轉成字串防止當機
+                            if (typeof date === 'number') {
+                            // 簡易轉換 Excel 日期 (這是一個簡單解法，轉換 Excel 序號為 JS 日期)
+                            const excelDate = new Date(Math.round((date - 25569)*86400*1000));
+                            date = excelDate.toISOString().split('T')[0]; 
+                            }
+                            // 確保最終存入的是字串
+                            date = String(date || '').trim().replace(/\//g, '-'); // 把 2024/01/01 改為 2024-01-01
                             const amount = parseFloat(row['金額']);
                             const category = row['主類別'] || '未分類';
                             const subCategory = row['子類別'] || '';
@@ -1192,4 +1204,5 @@
     </script>
 </body>
 </html>
+
 
