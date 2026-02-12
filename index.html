@@ -6,6 +6,8 @@
     <title>雲端帳本 Pro</title>
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="雲端帳本">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#F8FAFC">
     <script>
         (function() {
@@ -752,9 +754,14 @@
                                     <button onClick={()=>{setTxForm({...txForm, type:'income', category: categories['income'][0].name});}} className={`p-3 rounded-lg font-bold ${txForm.type==='income'?'bg-emerald-100 text-emerald-600':'bg-stone-100 text-stone-500'}`}>收入</button>
                                 </div>
                                 <div className="space-y-4">
-                                    <select className="w-full bg-stone-50 p-3 rounded-lg font-bold text-stone-700" value={txForm.category} onChange={e=>setTxForm({...txForm, category:e.target.value})}>
-                                        {categories[txForm.type].map(c=><option key={c.name} value={c.name}>{c.name}</option>)}
-                                    </select>
+                                    <div className="flex gap-2">
+                                        <select className="flex-1 bg-stone-50 p-3 rounded-lg font-bold text-stone-700" value={txForm.category} onChange={e=>setTxForm({...txForm, category:e.target.value})}>
+                                            {categories[txForm.type].map(c=><option key={c.name} value={c.name}>{c.name}</option>)}
+                                        </select>
+                                        <button onClick={()=>{setEditingCategoryType(txForm.type); setModal('cat');}} className="p-3 bg-stone-100 rounded-lg text-stone-500 hover:bg-stone-200">
+                                            <Icon name="settings" size={20}/>
+                                        </button>
+                                    </div>
                                     {/* Sub Categories */}
                                     {categories[txForm.type].find(c=>c.name===txForm.category)?.subs?.length > 0 && (
                                         <div className="flex flex-wrap gap-2">
