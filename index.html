@@ -9,6 +9,22 @@
     <meta name="apple-mobile-web-app-title" content="雲端帳本">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#F8FAFC">
+    
+    <!-- 🔴 【重要】請將您的 Firebase 設定貼在下方，即可跨裝置免輸入 -->
+    <script>
+        // 將您的設定取代下方的 null (保留大括號格式)
+        // 例如: window.EMBEDDED_CONFIG = { apiKey: "AIza...", ... };
+        window.EMBEDDED_CONFIG = {
+  apiKey: "AIzaSyD5AwqqAkFRBNY-f-FXAMAbf4H8BlBCGsk",
+  authDomain: "bigi-1234.firebaseapp.com",
+  projectId: "bigi-1234",
+  storageBucket: "bigi-1234.firebasestorage.app",
+  messagingSenderId: "177215769037",
+  appId: "1:177215769037:web:740e6d3277ef5f7e0b1c84",
+  measurementId: "G-5Q2HQY3S6Y"
+}; 
+    </script>
+
     <script>
         (function() {
             var c = document.createElement('canvas'); c.width = 512; c.height = 512; var x = c.getContext('2d');
@@ -55,6 +71,7 @@
         const getLocalToday = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
         const getLocalMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; };
         const addMonths = (dStr, m) => { const [y,M,d]=dStr.split('-').map(Number); const nd=new Date(y,M-1+m,1); if(m>0) return `${nd.getFullYear()}-${String(nd.getMonth()+1).padStart(2,'0')}-01`; const maxD=new Date(nd.getFullYear(),nd.getMonth()+1,0).getDate(); return `${nd.getFullYear()}-${String(nd.getMonth()+1).padStart(2,'0')}-${String(Math.min(d,maxD)).padStart(2,'0')}`; };
+        const getDayOfWeek = (dateStr) => { const days = ['週日', '週一', '週二', '週三', '週四', '週五', '週六']; return days[new Date(dateStr).getDay()]; };
 
         const DEFAULT_CATS = { expense: [{name:'飲食',icon:'utensils',subs:[]},{name:'交通',icon:'bus',subs:[]},{name:'購物',icon:'shopping-bag',subs:[]},{name:'娛樂',icon:'film',subs:[]},{name:'居住',icon:'home',subs:[]}], income: [{name:'薪資',icon:'wallet',subs:[]},{name:'獎金',icon:'gift',subs:[]},{name:'投資',icon:'trending-up',subs:[]}] };
         
@@ -73,20 +90,18 @@
         const DEFAULT_RATES = {'TWD':1,'USD':32.5,'JPY':0.22,'EUR':35.0,'CNY':4.5,'HKD':4.1,'KRW':0.024,'AUD':21.5,'CAD':24.0,'GBP':41.0,'SGD':24.2,'CHF':36.5};
         
         const CATEGORY_COLORS = { '飲食': '#f97316', '交通': '#3b82f6', '購物': '#ec4899', '娛樂': '#a855f7', '居住': '#6366f1', '醫療': '#ef4444', '教育': '#22c55e', '薪資': '#10b981', '獎金': '#eab308', '投資': '#f43f5e', '轉帳': '#64748b', '代墊': '#8b5cf6', '還款': '#10b981', '自動繳款': '#94a3b8', '運動': '#f59e0b' };
-
         const AVAILABLE_ICONS = ['utensils', 'coffee', 'beer', 'shopping-cart', 'shopping-bag', 'gift', 'bus', 'car', 'plane', 'bed', 'map', 'home', 'zap', 'wifi', 'phone', 'hammer', 'film', 'gamepad-2', 'music', 'camera', 'ticket', 'stethoscope', 'pill', 'heart', 'graduation-cap', 'book', 'briefcase', 'smile', 'frown', 'star', 'tag', 'dumbbell', 'more-horizontal'];
-        
         const OFFSET_ACCOUNT_ID = 'virtual-offset-account';
 
         const NavBtn = ({icon, label, active, onClick}) => (
             <button onClick={onClick} className={`flex flex-col items-center justify-center w-full gap-1 ${active?'text-rose-600 scale-105':'text-stone-400 hover:text-stone-600'}`}>{icon}<span className="text-[10px] font-bold">{label}</span></button>
         );
 
-        const Header = ({ currentBook, setIsBookSelectOpen, user, handleGoogleLogin }) => (
+        const Header = ({ currentBook, setIsBookSelectOpen, user, handleGoogleLogin, title }) => (
             <header className="sticky top-0 z-20 bg-white border-b border-stone-100 px-6 py-4 flex justify-between items-center shadow-sm">
-                <div className="flex items-center gap-3 cursor-pointer p-2 hover:bg-stone-50 rounded-xl" onClick={() => setIsBookSelectOpen(true)}>
-                    <div className="bg-rose-500 p-2.5 rounded-xl text-white shadow-md shadow-rose-200"><Icon name={currentBook.id==='main'?'book':'plane'} size={22}/></div>
-                    <div><h1 className="font-bold text-lg text-stone-700 tracking-wide flex items-center gap-1.5">{currentBook.name} <Icon name="chevron-down" size={16} className="text-stone-400"/></h1></div>
+                <div className="flex items-center gap-3 cursor-pointer p-2 hover:bg-stone-50 rounded-xl" onClick={() => !title && setIsBookSelectOpen(true)}>
+                    <div className="bg-rose-500 p-2.5 rounded-xl text-white shadow-md shadow-rose-200"><Icon name={title ? 'landmark' : (currentBook.id==='main'?'book':'plane')} size={22}/></div>
+                    <div><h1 className="font-bold text-lg text-stone-700 tracking-wide flex items-center gap-1.5">{title || currentBook.name} {!title && <Icon name="chevron-down" size={16} className="text-stone-400"/>}</h1></div>
                 </div>
                 {user?.isAnonymous ? <button onClick={handleGoogleLogin} className="text-xs font-bold text-rose-600 bg-rose-50 px-3 py-2 rounded-lg">登入</button> : <div className="h-8 w-8 rounded-full overflow-hidden border border-stone-200"><img src={user?.photoURL||'https://via.placeholder.com/32'} alt="User"/></div>}
             </header>
@@ -121,8 +136,7 @@
             const [selectedCategory, setSelectedCategory] = useState(null); 
             
             const [txForm, setTxForm] = useState({ type:'expense', amount:'', toAmount:'', category:'', subCategory:'', accountId:'', toAccountId:'', debtor:'', date:getLocalToday(), note:'', currency:'TWD' });
-            const [editingTx, setEditingTx] = useState(null); // New: Track which transaction is being edited
-
+            const [editingTx, setEditingTx] = useState(null);
             const [accForm, setAccForm] = useState({ name:'', type:'cash', currency:'TWD', initialBalance:'', includeInTotal: true });
             const [recForm, setRecForm] = useState({ name:'', type:'expense', amount:'', day:1 });
             const [newCatForm, setNewCatForm] = useState({ name:'', icon:'tag', type:'expense' });
@@ -139,6 +153,8 @@
             const [settleTargetTx, setSettleTargetTx] = useState(null);
             const [isOffset, setIsOffset] = useState(false);
             const [offsetTargetId, setOffsetTargetId] = useState('');
+            const [viewingAccount, setViewingAccount] = useState(null);
+            const [accountDetailMonth, setAccountDetailMonth] = useState(getLocalMonth());
 
             const fbRef = useRef(null);
             const authRef = useRef(null);
@@ -152,7 +168,14 @@
                 const init = () => {
                     if (window.isFirebaseSDKReady) {
                         try {
-                            let cfg = window.__firebase_config ? JSON.parse(window.__firebase_config) : JSON.parse(localStorage.getItem('my_ledger_firebase_config'));
+                            // Check embedded config first (hardcoded by user)
+                            let cfg = window.EMBEDDED_CONFIG;
+                            
+                            // Fallback to env variable or local storage
+                            if (!cfg) {
+                                cfg = window.__firebase_config ? JSON.parse(window.__firebase_config) : JSON.parse(localStorage.getItem('my_ledger_firebase_config'));
+                            }
+
                             if (cfg) {
                                 const app = window.FirebaseSDK.initializeApp(cfg);
                                 fbRef.current = window.FirebaseSDK;
@@ -254,6 +277,9 @@
                 if(type === 'transfer') return 'arrow-right-left';
                 if(type === 'advance') return 'hand-coins';
                 if(type === 'repayment') return 'check-circle';
+                if(type === 'transfer_in') return 'arrow-left-right'; 
+                if(type === 'transfer_out') return 'arrow-right-left';
+                if (!categories[type] && type!=='expense' && type!=='income') return 'tag'; // fallback
                 if (!categories[type]) return 'tag';
                 const cat = categories[type].find(c => c.name === catName);
                 return cat ? cat.icon : 'tag';
@@ -275,6 +301,7 @@
                         if (t.type==='expense'||t.type==='advance') if(bals[t.accountId]!=null) bals[t.accountId]-=amt;
                         if (t.type==='transfer') { if(bals[t.accountId]!=null) bals[t.accountId]-=amt; if(bals[t.toAccountId]!=null) bals[t.toAccountId]+=(t.toAmount?parseFloat(t.toAmount):amt); }
                     }
+                    
                     if ((t.bookId||'main') === currentBook.id && t.date.startsWith(currentLedgerMonth)) {
                         if (t.type==='income') inc+=amt;
                         if (t.type==='expense') exp+=amt;
@@ -332,7 +359,6 @@
                 return { total, chart, filteredTx: targetTx };
             }, [transactions, analysisMode, currentLedgerMonth, currentBook, analysisType, analysisGroupBy, categories]);
 
-            // --- Group Transactions by Date (New Feature) ---
             const groupedTransactions = useMemo(() => {
                 const targetTxs = transactions.filter(t => (t.bookId||'main')===currentBook.id && t.date.startsWith(currentLedgerMonth));
                 const groups = {};
@@ -340,14 +366,51 @@
                     if (!groups[tx.date]) groups[tx.date] = [];
                     groups[tx.date].push(tx);
                 });
-                // Sort dates descending
                 return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]));
             }, [transactions, currentBook, currentLedgerMonth]);
+            
+            const accountDetailData = useMemo(() => {
+                if (!viewingAccount) return null;
+                const related = transactions.filter(t => t.accountId === viewingAccount.id || t.toAccountId === viewingAccount.id);
+                related.sort((a, b) => {
+                    const dateA = new Date(a.date).getTime();
+                    const dateB = new Date(b.date).getTime();
+                    if (dateA !== dateB) return dateA - dateB;
+                    return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+                });
 
-            const getDayOfWeek = (dateStr) => {
-                const days = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
-                return days[new Date(dateStr).getDay()];
-            };
+                let balance = parseFloat(viewingAccount.initialBalance) || 0;
+                const withBalance = related.map(t => {
+                    const amt = parseFloat(t.amount);
+                    let change = 0;
+                    let type = 'neutral';
+                    if (t.accountId === viewingAccount.id) {
+                        if (t.type === 'expense' || t.type === 'advance') { balance -= amt; change = -amt; type = 'expense'; } 
+                        else if (t.type === 'income' || t.type === 'repayment') { balance += amt; change = amt; type = 'income'; } 
+                        else if (t.type === 'transfer') { balance -= amt; change = -amt; type = 'transfer_out'; }
+                    } else if (t.toAccountId === viewingAccount.id && t.type === 'transfer') {
+                        const inAmt = t.toAmount ? parseFloat(t.toAmount) : amt; balance += inAmt; change = inAmt; type = 'transfer_in';
+                    }
+                    return { ...t, balanceSnapshot: balance, change, displayType: type };
+                });
+
+                const monthTxs = withBalance.filter(t => t.date.startsWith(accountDetailMonth));
+                const displayList = [...monthTxs].sort((a, b) => {
+                     const dateA = new Date(a.date).getTime();
+                     const dateB = new Date(b.date).getTime();
+                     if (dateA !== dateB) return dateB - dateA;
+                     return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+                });
+
+                let mIncome = 0, mExpense = 0, mTrans = 0;
+                monthTxs.forEach(t => {
+                    if (t.displayType === 'income' || t.displayType === 'repayment') mIncome += t.change;
+                    else if (t.displayType === 'expense' || t.displayType === 'advance') mExpense += Math.abs(t.change);
+                    else if (t.displayType === 'transfer_in' || t.displayType === 'transfer_out') mTrans += t.change;
+                });
+
+                return { displayList, stats: { mIncome, mExpense, mTrans }, currentBalance: balance };
+            }, [viewingAccount, transactions, accountDetailMonth]);
 
             // Handlers
             const handleTxSave = () => {
@@ -360,47 +423,26 @@
                     if (categories[txForm.type] && categories[txForm.type].length > 0) finalCategory = categories[txForm.type][0].name;
                     else finalCategory = '未分類';
                 }
-
-                // If editing, use existing createdAt, otherwise use current
                 const createdAt = editingTx ? editingTx.createdAt : new Date().toISOString();
-                
                 const base = { ...txForm, bookId: currentBook.id, amount: amt, category: finalCategory, createdAt };
-                
-                // If editing existing transaction, just update it
                 if (editingTx) {
                     saveData('transactions', base, editingTx.id);
                     setModal(null);
                     setEditingTx(null);
                     return;
                 }
-
-                // Handle Offset
                 if (isOffset && offsetTargetId) {
-                    const expenseTx = { ...base, accountId: OFFSET_ACCOUNT_ID, note: `抵扣: ${txForm.note}` };
-                    saveData('transactions', expenseTx); // Create Expense
-                    saveData('transactions', {
-                        type: 'repayment', amount: amt, accountId: OFFSET_ACCOUNT_ID, relatedTxId: offsetTargetId,
-                        date: txForm.date, bookId: currentBook.id, note: `抵扣支出 (${finalCategory})`, createdAt: new Date().toISOString()
-                    }); // Create Repayment
-                    setModal(null);
-                    return;
+                    saveData('transactions', { ...base, accountId: OFFSET_ACCOUNT_ID, note: `抵扣: ${txForm.note}` }); 
+                    saveData('transactions', { type: 'repayment', amount: amt, accountId: OFFSET_ACCOUNT_ID, relatedTxId: offsetTargetId, date: txForm.date, bookId: currentBook.id, note: `抵扣支出 (${finalCategory})`, createdAt: new Date().toISOString() }); 
+                    setModal(null); return;
                 }
-
-                // Handle Installment / Advance / Normal
                 if (txForm.type === 'expense' && installment.enabled) {
                     const p = parseInt(installment.periods);
                     const per = Math.round(amt / p);
-                    for (let i = 0; i < p; i++) {
-                        saveData('transactions', { ...base, amount: (i===0?amt-(per*p)+per:per), date: addMonths(txForm.date, i), note: `${txForm.note} (${i+1}/${p})`, createdAt: new Date().toISOString() });
-                    }
+                    for (let i = 0; i < p; i++) { saveData('transactions', { ...base, amount: (i===0?amt-(per*p)+per:per), date: addMonths(txForm.date, i), note: `${txForm.note} (${i+1}/${p})`, createdAt: new Date().toISOString() }); }
                 } else if (txForm.type === 'expense' && isAdvanceSplit) {
                      let advTotal = 0;
-                     splitData.advances.forEach(a => {
-                         if (a.debtor && a.amount) {
-                             saveData('transactions', { ...base, type:'advance', amount: parseFloat(a.amount), debtor: a.debtor, isSettled: false, note: `代墊: ${txForm.note}`, createdAt: new Date().toISOString() });
-                             advTotal += parseFloat(a.amount);
-                         }
-                     });
+                     splitData.advances.forEach(a => { if (a.debtor && a.amount) { saveData('transactions', { ...base, type:'advance', amount: parseFloat(a.amount), debtor: a.debtor, isSettled: false, note: `代墊: ${txForm.note}`, createdAt: new Date().toISOString() }); advTotal += parseFloat(a.amount); } });
                      const myExp = amt - advTotal;
                      if (myExp > 0) saveData('transactions', { ...base, amount: myExp, createdAt: new Date().toISOString() });
                 } else if (txForm.type === 'income' && isAdvanceSplit) {
@@ -408,121 +450,73 @@
                     const gain = amt - principal;
                     if (principal > 0) saveData('transactions', { ...base, type: 'transfer', amount: principal, category: '轉帳', accountId: splitData.sourceAccountId, toAccountId: txForm.accountId, note: `投資本金`, createdAt: new Date().toISOString() });
                     if (gain !== 0) saveData('transactions', { ...base, type: 'income', amount: gain, category: txForm.category || '投資', note: `投資獲利`, createdAt: new Date().toISOString() });
-                } else {
-                    saveData('transactions', base);
-                }
+                } else { saveData('transactions', base); }
                 setModal(null);
             };
             
-            const handleAddSubCategory = async (mainCat, sub) => {
-                if(!sub) return;
-                const newCats = {...categories};
-                const cat = newCats[editingCategoryType].find(c=>c.name===mainCat);
-                if(cat && !cat.subs.includes(sub)) { cat.subs.push(sub); setCategories(newCats); await saveData('settings', {categories:newCats}, 'config'); }
-            };
-
-            const handleDeleteSubCategory = async (mainCat, sub) => {
-                const newCats = {...categories};
-                const cat = newCats[editingCategoryType].find(c=>c.name===mainCat);
-                if(cat) { cat.subs = cat.subs.filter(s => s !== sub); setCategories(newCats); await saveData('settings', {categories:newCats}, 'config'); }
-            };
-            
-            const handleAccSubmit = async (e) => {
-                e.preventDefault();
-                if (!accForm.name) return;
-                const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
-                const accountData = { ...accForm, order: editingAccount ? editingAccount.order : accounts.length };
-                if (editingAccount) { await fbRef.current.updateDoc(fbRef.current.doc(userRef, 'accounts', editingAccount.id), accountData); } 
-                else { await fbRef.current.addDoc(fbRef.current.collection(userRef, 'accounts'), { ...accountData, createdAt: new Date().toISOString() }); }
-                setModal(null);
-            };
-            
-            const handleSort = async () => {
-                if (dragItem.current === null || dragOverItem.current === null) return;
-                const _accounts = [...accounts];
-                const draggedItemContent = _accounts[dragItem.current];
-                _accounts.splice(dragItem.current, 1);
-                _accounts.splice(dragOverItem.current, 0, draggedItemContent);
-                dragItem.current = null; dragOverItem.current = null;
-                setAccounts(_accounts);
-                const batch = fbRef.current.writeBatch(dbRef.current);
-                const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
-                _accounts.forEach((acc, index) => { const ref = fbRef.current.doc(userRef, 'accounts', acc.id); batch.update(ref, { order: index }); });
-                await batch.commit();
-            };
-
-            const handleUpdateMarketValue = async () => {
-                if (!editTarget) return;
-                const accRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid, 'accounts', editTarget.id);
-                await fbRef.current.updateDoc(accRef, { marketValue: parseFloat(newMarketValue) || 0 });
-                setModal(null);
-            };
-            
+            const handleAddSubCategory = async (mainCat, sub) => { if(!sub) return; const newCats = {...categories}; const cat = newCats[editingCategoryType].find(c=>c.name===mainCat); if(cat && !cat.subs.includes(sub)) { cat.subs.push(sub); setCategories(newCats); await saveData('settings', {categories:newCats}, 'config'); } };
+            const handleDeleteSubCategory = async (mainCat, sub) => { const newCats = {...categories}; const cat = newCats[editingCategoryType].find(c=>c.name===mainCat); if(cat) { cat.subs = cat.subs.filter(s => s !== sub); setCategories(newCats); await saveData('settings', {categories:newCats}, 'config'); } };
+            const handleAccSubmit = async (e) => { e.preventDefault(); if (!accForm.name) return; const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid); const accountData = { ...accForm, order: editingAccount ? editingAccount.order : accounts.length }; if (editingAccount) { await fbRef.current.updateDoc(fbRef.current.doc(userRef, 'accounts', editingAccount.id), accountData); } else { await fbRef.current.addDoc(fbRef.current.collection(userRef, 'accounts'), { ...accountData, createdAt: new Date().toISOString() }); } setModal(null); };
+            const handleSort = async () => { if (dragItem.current === null || dragOverItem.current === null) return; const _accounts = [...accounts]; const draggedItemContent = _accounts[dragItem.current]; _accounts.splice(dragItem.current, 1); _accounts.splice(dragOverItem.current, 0, draggedItemContent); dragItem.current = null; dragOverItem.current = null; setAccounts(_accounts); const batch = fbRef.current.writeBatch(dbRef.current); const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid); _accounts.forEach((acc, index) => { const ref = fbRef.current.doc(userRef, 'accounts', acc.id); batch.update(ref, { order: index }); }); await batch.commit(); };
+            const handleUpdateMarketValue = async () => { if (!editTarget) return; const accRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid, 'accounts', editTarget.id); await fbRef.current.updateDoc(accRef, { marketValue: parseFloat(newMarketValue) || 0 }); setModal(null); };
             const handleBudgetSubmit = (val) => { setMonthlyBudget(val); saveData('settings', { budget: parseFloat(val) }, 'config'); };
             const handleAddCategory = () => { if(!newCatForm.name) return; const newCats = {...categories}; newCats[newCatForm.type].push({ name: newCatForm.name, icon: newCatForm.icon, subs: [] }); setCategories(newCats); saveData('settings', {categories: newCats}, 'config'); };
             const handleDeleteCategory = (catName) => { const newCats = {...categories}; newCats[editingCategoryType] = newCats[editingCategoryType].filter(c => c.name !== catName); setCategories(newCats); saveData('settings', {categories: newCats}, 'config'); };
             const handleRatesSubmit = () => { saveData('settings', exchangeRates, 'rates'); setModal(null); };
-
             const updateAdvanceRow = (index, field, value) => { const newAdvances = [...splitData.advances]; newAdvances[index][field] = value; setSplitData({...splitData, advances: newAdvances}); };
             const addAdvanceRow = () => { setSplitData({...splitData, advances: [...splitData.advances, { debtor: '', amount: '' }]}); };
             const removeAdvanceRow = (index) => { if (splitData.advances.length <= 1) return; const newAdvances = splitData.advances.filter((_, i) => i !== index); setSplitData({...splitData, advances: newAdvances}); };
-
             const openTxModal = (type = 'expense', existingTx = null) => {
-                 if (existingTx) {
-                     setEditingTx(existingTx);
-                     setTxForm({
-                         ...existingTx,
-                         // Ensure accountId is present, or default to first account
-                         accountId: existingTx.accountId || (accounts.length > 0 ? accounts[0].id : ''),
-                     });
-                     // Disable advanced features when editing for simplicity
-                     setIsAdvanceSplit(false); 
-                     setIsOffset(false);
-                     setInstallment({ enabled: false, periods: 3 });
-                 } else {
-                     setEditingTx(null);
-                     setTxForm({ 
-                         ...txForm, 
-                         type, 
-                         category: categories[type] && categories[type].length > 0 ? categories[type][0].name : '',
-                         accountId: accounts.length > 0 ? accounts[0].id : '',
-                         amount: '',
-                         note: '',
-                         date: getLocalToday()
-                     });
-                     setIsAdvanceSplit(false); 
-                     setIsOffset(false);
-                     setSplitData({ advances:[{debtor:'',amount:''}], principalAmount:'', sourceAccountId:'' }); 
-                 }
-                 setModal('tx');
+                 if (existingTx) { setEditingTx(existingTx); setTxForm({ ...existingTx, accountId: existingTx.accountId || (accounts.length > 0 ? accounts[0].id : ''), }); setIsAdvanceSplit(false); setIsOffset(false); setInstallment({ enabled: false, periods: 3 }); } else { setEditingTx(null); setTxForm({ ...txForm, type, category: categories[type] && categories[type].length > 0 ? categories[type][0].name : '', accountId: accounts.length > 0 ? accounts[0].id : '', amount: '', note: '', date: getLocalToday() }); setIsAdvanceSplit(false); setIsOffset(false); setSplitData({ advances:[{debtor:'',amount:''}], principalAmount:'', sourceAccountId:'' }); } setModal('tx');
             };
-            
-            const changeMonthStep = (step) => {
-                const [y, m] = currentLedgerMonth.split('-').map(Number);
-                const date = new Date(y, m - 1 + step, 1);
-                const ny = date.getFullYear();
-                const nm = String(date.getMonth() + 1).padStart(2, '0');
-                setCurrentLedgerMonth(`${ny}-${nm}`);
-            };
-            
-            const handleEditMainCategoryName = async (newName) => {
-                if (!newName || !editingCategory) return;
-                const newCats = { ...categories };
-                const catIdx = newCats[editingCategoryType].findIndex(c => c.name === editingCategory.name);
-                if (catIdx > -1) { newCats[editingCategoryType][catIdx].name = newName; setCategories(newCats); setEditingCategory(newCats[editingCategoryType][catIdx]); await saveData('settings', { categories: newCats }, 'config'); }
-            };
-            
-            const handleEditMainCategoryIcon = async (newIcon) => {
-                if (!editingCategory) return;
-                const newCats = { ...categories };
-                const catIdx = newCats[editingCategoryType].findIndex(c => c.name === editingCategory.name);
-                if (catIdx > -1) { newCats[editingCategoryType][catIdx].icon = newIcon; setCategories(newCats); setEditingCategory(newCats[editingCategoryType][catIdx]); await saveData('settings', { categories: newCats }, 'config'); }
-            };
+            const changeMonthStep = (step) => { const [y, m] = currentLedgerMonth.split('-').map(Number); const date = new Date(y, m - 1 + step, 1); setCurrentLedgerMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`); };
+            const changeDetailMonthStep = (step) => { const [y, m] = accountDetailMonth.split('-').map(Number); const date = new Date(y, m - 1 + step, 1); setAccountDetailMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`); };
+            const handleEditMainCategoryName = async (newName) => { if (!newName || !editingCategory) return; const newCats = { ...categories }; const catIdx = newCats[editingCategoryType].findIndex(c => c.name === editingCategory.name); if (catIdx > -1) { newCats[editingCategoryType][catIdx].name = newName; setCategories(newCats); setEditingCategory(newCats[editingCategoryType][catIdx]); await saveData('settings', { categories: newCats }, 'config'); } };
+            const handleEditMainCategoryIcon = async (newIcon) => { if (!editingCategory) return; const newCats = { ...categories }; const catIdx = newCats[editingCategoryType].findIndex(c => c.name === editingCategory.name); if (catIdx > -1) { newCats[editingCategoryType][catIdx].icon = newIcon; setCategories(newCats); setEditingCategory(newCats[editingCategoryType][catIdx]); await saveData('settings', { categories: newCats }, 'config'); } };
+            const openAccModalCorrect = (acc = null) => { if (acc) { setEditingAccount(acc); setAccForm({ name: acc.name, type: acc.type, currency: acc.currency || 'TWD', initialBalance: acc.initialBalance || '', includeInTotal: acc.includeInTotal !== false, closingDay: acc.closingDay || '27', paymentDueDay: acc.paymentDueDay || '15', autoPaymentAccount: acc.autoPaymentAccount || '', holidayAdjustment: acc.holidayAdjustment || 'defer', autoPayment: acc.autoPayment || false }); } else { setEditingAccount(null); setAccForm({ name: '', type: 'cash', currency: 'TWD', initialBalance: '', includeInTotal: true, closingDay: '27', paymentDueDay: '15', autoPaymentAccount: '', holidayAdjustment: 'defer', autoPayment: false }); } setModal('acc'); };
 
-            if (needConfig) return (
-                <div className="min-h-screen bg-stone-50 flex items-center justify-center p-6"><div className="bg-white max-w-md w-full p-8 rounded-3xl shadow-xl"><div className="flex justify-center mb-6 text-stone-800"><Icon name="settings" size={48}/></div><h2 className="text-xl font-bold text-center mb-4">輸入 Firebase 設定</h2><textarea className="w-full h-48 p-4 bg-stone-50 rounded-xl text-xs font-mono mb-4 border" placeholder='{ "apiKey": "..." }' value={configInput} onChange={e=>setConfigInput(e.target.value)}/><button onClick={handleSaveConfig} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold">儲存</button></div></div>
-            );
+            if (needConfig) return <div className="min-h-screen bg-stone-50 flex items-center justify-center p-6"><div className="bg-white max-w-md w-full p-8 rounded-3xl shadow-xl"><div className="flex justify-center mb-6 text-stone-800"><Icon name="settings" size={48}/></div><h2 className="text-xl font-bold text-center mb-4">輸入 Firebase 設定</h2><textarea className="w-full h-48 p-4 bg-stone-50 rounded-xl text-xs font-mono mb-4 border" placeholder='{ "apiKey": "..." }' value={configInput} onChange={e=>setConfigInput(e.target.value)}/><button onClick={handleSaveConfig} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold">儲存</button></div></div>;
             if (!sdkReady || loading) return <div className="h-screen flex items-center justify-center bg-stone-50"><Icon name="loader-2" className="animate-spin text-stone-500" size={40}/></div>;
+
+            if (viewingAccount) {
+                return (
+                     <div className="min-h-screen pb-24 max-w-xl mx-auto bg-stone-50 relative">
+                        <header className="sticky top-0 z-20 bg-stone-900 text-white px-4 py-4 flex justify-between items-center shadow-lg">
+                            <button onClick={()=>setViewingAccount(null)} className="p-2 bg-white/10 rounded-lg"><Icon name="arrow-left"/></button>
+                            <h1 className="font-bold text-lg">{viewingAccount.name} <span className="text-xs opacity-50">{viewingAccount.currency}</span></h1>
+                            <div className="w-10"></div>
+                        </header>
+                        <div className="p-4 space-y-4">
+                            <div className="flex items-center justify-between bg-white rounded-xl p-2 shadow-sm border border-stone-200">
+                                <button onClick={()=>changeDetailMonthStep(-1)} className="p-2 hover:bg-stone-50 rounded-lg text-stone-400"><Icon name="chevron-left"/></button>
+                                <div className="text-center font-bold text-stone-800 text-lg">{accountDetailMonth.replace('-','年 ')}月</div>
+                                <button onClick={()=>changeDetailMonthStep(1)} className="p-2 hover:bg-stone-50 rounded-lg text-stone-400"><Icon name="chevron-right"/></button>
+                            </div>
+                            <div className="bg-stone-900 rounded-xl p-6 text-white shadow-lg">
+                                <div className="flex justify-between items-end mb-4"><div><p className="text-xs text-stone-400 mb-1">當前餘額</p><h2 className="text-3xl font-black tabular-nums">${(accountDetailData?.currentBalance||0).toLocaleString()}</h2></div></div>
+                                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                                    <div className="bg-white/10 p-2 rounded"><p className="text-stone-400 mb-1">收入</p><p className="font-bold text-emerald-400">+${accountDetailData?.stats.mIncome.toLocaleString()}</p></div>
+                                    <div className="bg-white/10 p-2 rounded"><p className="text-stone-400 mb-1">支出</p><p className="font-bold text-rose-400">-${accountDetailData?.stats.mExpense.toLocaleString()}</p></div>
+                                    <div className="bg-white/10 p-2 rounded"><p className="text-stone-400 mb-1">轉帳</p><p className={`font-bold ${accountDetailData?.stats.mTrans >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{accountDetailData?.stats.mTrans > 0 ? '+' : ''}{accountDetailData?.stats.mTrans.toLocaleString()}</p></div>
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <h3 className="text-xs font-bold text-stone-400 uppercase ml-1">交易明細 (含餘額)</h3>
+                                {accountDetailData?.displayList.length === 0 ? <div className="text-center py-10 text-stone-400 text-sm">本月無交易</div> : 
+                                    accountDetailData?.displayList.map(tx => (
+                                    <div key={tx.id} className="bg-white p-3 rounded-xl shadow-sm border border-stone-100 flex justify-between items-center">
+                                        <div className="flex items-center gap-3">
+                                             <div className={`p-2 rounded-lg text-white ${tx.displayType==='income'?'bg-emerald-500': tx.displayType==='expense'?'bg-rose-500':'bg-slate-500'}`}><Icon name={getCategoryIcon(tx.category, tx.type)} size={16}/></div>
+                                             <div><p className="font-bold text-sm text-stone-800">{tx.category} <span className="text-xs font-normal text-stone-400">{tx.date.slice(5)}</span></p><p className="text-xs text-stone-400">{tx.note || '無備註'}</p></div>
+                                        </div>
+                                        <div className="text-right"><p className={`font-bold tabular-nums ${tx.change > 0 ? 'text-emerald-600' : 'text-stone-800'}`}>{tx.change > 0 ? '+' : ''}{tx.change.toLocaleString()}</p><p className="text-[10px] text-stone-400 font-bold mt-0.5 tabular-nums">餘額: ${tx.balanceSnapshot.toLocaleString()}</p></div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                     </div>
+                );
+            }
 
             return (
                 <div className="min-h-screen pb-24 max-w-xl mx-auto bg-stone-50 relative">
@@ -533,9 +527,7 @@
                             <div className="animate-in space-y-6">
                                 <div className="flex items-center justify-between bg-white rounded-xl p-2 shadow-sm border border-stone-200">
                                     <button onClick={()=>changeMonthStep(-1)} className="p-2 hover:bg-stone-50 rounded-lg text-stone-400"><Icon name="chevron-left"/></button>
-                                    <div className="text-center font-bold text-stone-800 text-lg">
-                                        {currentLedgerMonth.replace('-','年 ')}月
-                                    </div>
+                                    <div className="text-center font-bold text-stone-800 text-lg">{currentLedgerMonth.replace('-','年 ')}月</div>
                                     <button onClick={()=>changeMonthStep(1)} className="p-2 hover:bg-stone-50 rounded-lg text-stone-400"><Icon name="chevron-right"/></button>
                                 </div>
                                 <div className={`rounded-xl p-6 text-white shadow-lg relative overflow-hidden bg-gradient-to-br from-orange-400 to-rose-600`}>
@@ -547,12 +539,8 @@
                                     </div>
                                     <div className="mt-4 bg-white p-2 rounded-lg text-xs flex items-center gap-2 font-bold text-stone-700 shadow-sm"><Icon name={homeInsight.icon} size={14} className="text-rose-500"/> {homeInsight.text}</div>
                                 </div>
-                                
-                                {/* Grouped Transaction List */}
                                 <div className="space-y-4">
-                                    {groupedTransactions.length === 0 ? (
-                                        <div className="text-center py-16 text-stone-400 text-sm border-2 border-dashed border-stone-200 rounded-xl bg-white">本月尚無紀錄</div>
-                                    ) : (
+                                    {groupedTransactions.length === 0 ? <div className="text-center py-16 text-stone-400 text-sm border-2 border-dashed border-stone-200 rounded-xl bg-white">本月尚無紀錄</div> : 
                                         groupedTransactions.map(([date, txs]) => (
                                             <div key={date} className="animate-in slide-in-from-bottom">
                                                 <div className="flex items-center gap-2 mb-2 px-1">
@@ -561,38 +549,22 @@
                                                 </div>
                                                 <div className="bg-white rounded-xl shadow-sm border border-stone-100 overflow-hidden">
                                                     {txs.map((tx, idx) => (
-                                                        <div 
-                                                            key={tx.id} 
-                                                            onClick={() => openTxModal(tx.type, tx)}
-                                                            className={`p-4 flex justify-between items-center cursor-pointer hover:bg-stone-50 transition-colors ${idx !== txs.length - 1 ? 'border-b border-stone-50' : ''}`}
-                                                        >
+                                                        <div key={tx.id} onClick={() => openTxModal(tx.type, tx)} className={`p-4 flex justify-between items-center cursor-pointer hover:bg-stone-50 transition-colors ${idx !== txs.length - 1 ? 'border-b border-stone-50' : ''}`}>
                                                             <div className="flex items-center gap-3">
-                                                                <div className={`p-2.5 rounded-xl ${tx.type==='income'?'bg-emerald-50 text-emerald-600': tx.type==='advance'?'bg-indigo-50 text-indigo-600' : 'bg-stone-100 text-stone-600'}`}>
-                                                                    <Icon name={getCategoryIcon(tx.category, tx.type)} size={18}/>
-                                                                </div>
-                                                                <div>
-                                                                    <p className="font-bold text-sm text-stone-800">
-                                                                        {tx.type === 'advance' ? `代墊: ${tx.debtor}` : (tx.category || '未分類')} 
-                                                                        {tx.subCategory && <span className="text-xs text-stone-400 ml-1">({tx.subCategory})</span>}
-                                                                    </p>
-                                                                    <p className="text-xs text-stone-400 mt-0.5">{tx.note}</p>
-                                                                </div>
+                                                                <div className={`p-2.5 rounded-xl ${tx.type==='income'?'bg-emerald-50 text-emerald-600': tx.type==='advance'?'bg-indigo-50 text-indigo-600' : 'bg-stone-100 text-stone-600'}`}><Icon name={getCategoryIcon(tx.category, tx.type)} size={18}/></div>
+                                                                <div><p className="font-bold text-sm text-stone-800">{tx.type === 'advance' ? `代墊: ${tx.debtor}` : (tx.category || '未分類')} {tx.subCategory && <span className="text-xs text-stone-400 ml-1">({tx.subCategory})</span>}</p><p className="text-xs text-stone-400 mt-0.5">{tx.note}</p></div>
                                                             </div>
-                                                            <div className="text-right">
-                                                                <p className={`font-bold tabular-nums ${tx.type==='income'?'text-emerald-600':'text-stone-800'}`}>{tx.type==='income'?'+':'-'}{parseFloat(tx.amount).toLocaleString()}</p>
-                                                                <div className="flex justify-end gap-3 mt-1" onClick={e => e.stopPropagation()}>
-                                                                     <button onClick={()=>deleteData('transactions', tx.id)} className="text-stone-300 hover:text-rose-500"><Icon name="trash-2" size={14}/></button>
-                                                                </div>
-                                                            </div>
+                                                            <div className="text-right"><p className={`font-bold tabular-nums ${tx.type==='income'?'text-emerald-600':'text-stone-800'}`}>{tx.type==='income'?'+':'-'}{parseFloat(tx.amount).toLocaleString()}</p><div className="flex justify-end gap-3 mt-1" onClick={e => e.stopPropagation()}><button onClick={()=>deleteData('transactions', tx.id)} className="text-stone-300 hover:text-rose-500"><Icon name="trash-2" size={14}/></button></div></div>
                                                         </div>
                                                     ))}
                                                 </div>
                                             </div>
                                         ))
-                                    )}
+                                    }
                                 </div>
                             </div>
                         )}
+                        
                         {activeTab === 'assets' && (
                             <div className="animate-in space-y-4">
                                 <div className="flex justify-between items-center"><h2 className="text-xl font-bold text-stone-800">我的帳戶</h2><button onClick={()=>{setEditTarget(null); setAccForm({name:'', type:'cash', currency:'TWD', initialBalance:'', includeInTotal: true}); setModal('acc')}}><Icon name="plus-circle" className="text-rose-500"/></button></div>
@@ -606,35 +578,19 @@
                                     </div>
                                 </div>
                                 <div className="grid gap-3">{accounts.map((acc, index) => (
-                                    <div 
-                                        key={acc.id} 
-                                        className="bg-white p-4 rounded-xl shadow-sm border border-stone-100 relative cursor-move hover:shadow-md transition-shadow"
-                                        draggable
-                                        onDragStart={() => (dragItem.current = index)}
-                                        onDragEnter={() => (dragOverItem.current = index)}
-                                        onDragEnd={handleSort}
-                                        onDragOver={(e) => e.preventDefault()}
-                                    >
-                                        <div className="absolute top-3 right-3 flex gap-2">
+                                    <div key={acc.id} onClick={() => { setViewingAccount(acc); setAccountDetailMonth(currentLedgerMonth); }} className="bg-white p-4 rounded-xl shadow-sm border border-stone-100 relative cursor-pointer hover:shadow-md transition-shadow" draggable onDragStart={() => (dragItem.current = index)} onDragEnter={() => (dragOverItem.current = index)} onDragEnd={handleSort} onDragOver={(e) => e.preventDefault()}>
+                                        <div className="absolute top-3 right-3 flex gap-2" onClick={e => e.stopPropagation()}>
                                             <button onClick={()=>{setEditTarget(acc); openAccModalCorrect(acc);}} className="text-stone-400 hover:text-rose-500"><Icon name="edit-2" size={14}/></button>
                                             <button onClick={()=>deleteData('accounts', acc.id)} className="text-stone-400 hover:text-rose-600"><Icon name="trash-2" size={14}/></button>
                                         </div>
                                         <div className="flex gap-3 items-center mb-2">
-                                            <div className="text-stone-300 cursor-move"><Icon name="grip-vertical" size={16}/></div>
+                                            <div className="text-stone-300 cursor-move" onClick={e => e.stopPropagation()}><Icon name="grip-vertical" size={16}/></div>
                                             <div className={`p-2 rounded-lg ${ACCOUNT_TYPES[acc.type]?.color || 'bg-stone-100 text-stone-600'}`}><Icon name={ACCOUNT_TYPES[acc.type]?.iconName || 'wallet'} size={18}/></div>
-                                            <div>
-                                                <h3 className="font-bold text-stone-700">{acc.name}</h3>
-                                                {acc.includeInTotal === false && <span className="text-[10px] bg-stone-100 text-stone-400 px-1 rounded">不計入</span>}
-                                            </div>
+                                            <div><h3 className="font-bold text-stone-700">{acc.name}</h3>{acc.includeInTotal === false && <span className="text-[10px] bg-stone-100 text-stone-400 px-1 rounded">不計入</span>}</div>
                                         </div>
                                         <p className="text-2xl font-black tabular-nums text-stone-800 ml-7">${(acc.marketValue || stats.bals[acc.id]||0).toLocaleString()} <span className="text-xs text-stone-400 font-normal">{acc.currency}</span></p>
                                         {acc.currency!=='TWD' && <p className="text-xs text-stone-400 font-bold tabular-nums ml-7">≈ TWD ${Math.round((acc.marketValue || stats.bals[acc.id]||0) * (exchangeRates[acc.currency]||1)).toLocaleString()}</p>}
-                                        {acc.type === 'invest' && (
-                                            <div className="mt-2 pt-2 border-t flex justify-between items-center text-xs ml-7">
-                                                <span className="text-stone-400">成本: ${(stats.bals[acc.id]||0).toLocaleString()}</span>
-                                                <button onClick={()=>{setEditTarget(acc); setNewMarketValue(acc.marketValue||''); setModal('market')}} className="text-rose-500 font-bold bg-rose-50 px-2 py-1 rounded">調整市值</button>
-                                            </div>
-                                        )}
+                                        {acc.type === 'invest' && (<div className="mt-2 pt-2 border-t flex justify-between items-center text-xs ml-7" onClick={e => e.stopPropagation()}><span className="text-stone-400">成本: ${(stats.bals[acc.id]||0).toLocaleString()}</span><button onClick={()=>{setEditTarget(acc); setNewMarketValue(acc.marketValue||''); setModal('market')}} className="text-rose-500 font-bold bg-rose-50 px-2 py-1 rounded">調整市值</button></div>)}
                                     </div>
                                 ))}</div>
                             </div>
@@ -768,7 +724,7 @@
                     {modal === 'tx' && (
                         <div className="fixed inset-0 z-[200] bg-black/50 flex items-end sm:items-center justify-center p-4">
                             <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl p-6 animate-in slide-in-from-bottom max-h-[90vh] overflow-y-auto">
-                                <h3 className="font-bold text-xl mb-4 text-stone-800">{editingTx ? '編輯紀錄' : '記一筆'}</h3>
+                                <h3 className="font-bold text-xl mb-4 text-stone-800">記一筆</h3>
                                 <input type="number" className="w-full text-4xl font-black mb-4 outline-none tabular-nums text-stone-800 placeholder-stone-300" placeholder="0" value={txForm.amount} onChange={e=>setTxForm({...txForm, amount:e.target.value})} autoFocus />
                                 <div className="grid grid-cols-2 gap-2 mb-4">
                                     <button onClick={()=>{setTxForm({...txForm, type:'expense', category: categories['expense'][0].name});}} className={`p-3 rounded-lg font-bold ${txForm.type==='expense'?'bg-rose-100 text-rose-600':'bg-stone-100 text-stone-500'}`}>支出</button>
@@ -823,8 +779,8 @@
                                         <input className="bg-stone-50 p-3 rounded-lg flex-[2] font-bold text-stone-700" placeholder="備註" value={txForm.note} onChange={e=>setTxForm({...txForm, note:e.target.value})} />
                                     </div>
                                     
-                                    {/* Advanced Options (Only show when adding new, hide when editing for safety) */}
-                                    {!editingTx && txForm.type === 'expense' && (
+                                    {/* Advanced Options */}
+                                    {txForm.type === 'expense' && (
                                         <div className="space-y-2 pt-2 border-t border-stone-100">
                                             <label className="flex items-center justify-between p-2">
                                                 <span className="text-sm font-bold text-stone-500">使用待收抵扣 (互抵)</span>
@@ -885,11 +841,8 @@
                                  <select className="w-full p-3 bg-stone-50 rounded-lg mb-4 border border-stone-200" value={accForm.type} onChange={e=>setAccForm({...accForm, type:e.target.value})}>{Object.entries(ACCOUNT_TYPES).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select>
                                  <input type="number" className="w-full p-3 bg-stone-50 rounded-lg mb-4 border border-stone-200 tabular-nums" placeholder="初始餘額" value={accForm.initialBalance} onChange={e=>setAccForm({...accForm, initialBalance:e.target.value})}/>
                                  <div className="flex gap-2 mb-4"><span className="p-3 bg-stone-100 rounded text-sm text-stone-500">幣別</span><select className="flex-1 p-3 bg-stone-50 rounded border border-stone-200" value={accForm.currency} onChange={e=>setAccForm({...accForm, currency:e.target.value})}>{CURRENCIES.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
-                                 {/* Include in Total Toggle */}
                                  <label className="flex items-center gap-3 p-3 bg-stone-50 rounded-lg mb-6 cursor-pointer border border-stone-200">
-                                    <div className={`w-5 h-5 rounded-md flex items-center justify-center border ${accForm.includeInTotal ? 'bg-rose-500 border-rose-500 text-white' : 'bg-white border-stone-300'}`}>
-                                        {accForm.includeInTotal && <Icon name="check" size={14} />}
-                                    </div>
+                                    <div className={`w-5 h-5 rounded-md flex items-center justify-center border ${accForm.includeInTotal ? 'bg-rose-500 border-rose-500 text-white' : 'bg-white border-stone-300'}`}>{accForm.includeInTotal && <Icon name="check" size={14} />}</div>
                                     <input type="checkbox" className="hidden" checked={accForm.includeInTotal} onChange={e=>setAccForm({...accForm, includeInTotal:e.target.checked})} />
                                     <span className="text-sm font-bold text-stone-700">計入總資產</span>
                                  </label>
@@ -898,8 +851,7 @@
                              </div>
                          </div>
                     )}
-                    
-                    {/* ... (Other modals same as V15.3: TX, Book, Budget, Retire, Cat, Rate, Market, Settle) ... */}
+
                     {/* Book Select Modal */}
                     {modal === 'bookSelect' && (
                         <div className="fixed inset-0 z-[200] bg-black/50 flex items-end justify-center p-4">
