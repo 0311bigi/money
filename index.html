@@ -76,7 +76,6 @@
 
         const AVAILABLE_ICONS = ['utensils', 'coffee', 'beer', 'shopping-cart', 'shopping-bag', 'gift', 'bus', 'car', 'plane', 'bed', 'map', 'home', 'zap', 'wifi', 'phone', 'hammer', 'film', 'gamepad-2', 'music', 'camera', 'ticket', 'stethoscope', 'pill', 'heart', 'graduation-cap', 'book', 'briefcase', 'smile', 'frown', 'star', 'tag', 'dumbbell', 'more-horizontal'];
         
-        // 特殊虛擬帳戶 ID，用於互抵
         const OFFSET_ACCOUNT_ID = 'virtual-offset-account';
 
         const NavBtn = ({icon, label, active, onClick}) => (
@@ -122,13 +121,14 @@
             const [selectedCategory, setSelectedCategory] = useState(null); 
             
             const [txForm, setTxForm] = useState({ type:'expense', amount:'', toAmount:'', category:'', subCategory:'', accountId:'', toAccountId:'', debtor:'', date:getLocalToday(), note:'', currency:'TWD' });
-            const [accForm, setAccForm] = useState({ name:'', type:'cash', currency:'TWD', initialBalance:'' });
+            const [editingTx, setEditingTx] = useState(null); // New: Track which transaction is being edited
+
+            const [accForm, setAccForm] = useState({ name:'', type:'cash', currency:'TWD', initialBalance:'', includeInTotal: true });
             const [recForm, setRecForm] = useState({ name:'', type:'expense', amount:'', day:1 });
             const [newCatForm, setNewCatForm] = useState({ name:'', icon:'tag', type:'expense' });
             const [retireForm, setRetireForm] = useState({});
             const [bookForm, setBookForm] = useState({ name:'', currency:'TWD', startDate:'', endDate:'' });
             
-            // Advanced Tx States
             const [isAdvanceSplit, setIsAdvanceSplit] = useState(false);
             const [splitData, setSplitData] = useState({ advances:[{debtor:'',amount:''}], principalAmount:'', sourceAccountId:'' });
             const [installment, setInstallment] = useState({ enabled:false, periods:3 });
@@ -137,8 +137,6 @@
             const [editingCategoryType, setEditingCategoryType] = useState('expense');
             const [editingCategory, setEditingCategory] = useState(null);
             const [settleTargetTx, setSettleTargetTx] = useState(null);
-            
-            // Offset Logic State
             const [isOffset, setIsOffset] = useState(false);
             const [offsetTargetId, setOffsetTargetId] = useState('');
 
@@ -147,7 +145,6 @@
             const dbRef = useRef(null);
             const appId = 'my-cloud-ledger-pro';
 
-            // Drag and Drop
             const dragItem = useRef(null);
             const dragOverItem = useRef(null);
 
@@ -264,50 +261,26 @@
 
             const stats = useMemo(() => {
                 const bals = {}; accounts.forEach(a => bals[a.id] = parseFloat(a.initialBalance)||0);
-                
-                // 1. Calculate Advance Map (Outstanding Debts)
-                const advanceMap = {}; // { txId: { original, repaid, debtor } }
-                transactions.forEach(t => {
-                    if (t.type === 'advance') {
-                        advanceMap[t.id] = { ...t, repaid: 0, remaining: parseFloat(t.amount) };
-                    }
-                });
-                transactions.forEach(t => {
-                    if (t.type === 'repayment' && t.relatedTxId && advanceMap[t.relatedTxId]) {
-                        const repaidAmt = parseFloat(t.amount);
-                        advanceMap[t.relatedTxId].repaid += repaidAmt;
-                        advanceMap[t.relatedTxId].remaining -= repaidAmt;
-                    }
-                });
-                // Calculate total outstanding (only positive remaining)
+                const advanceMap = {}; 
+                transactions.forEach(t => { if (t.type === 'advance') advanceMap[t.id] = { ...t, repaid: 0, remaining: parseFloat(t.amount) }; });
+                transactions.forEach(t => { if (t.type === 'repayment' && t.relatedTxId && advanceMap[t.relatedTxId]) { const repaidAmt = parseFloat(t.amount); advanceMap[t.relatedTxId].repaid += repaidAmt; advanceMap[t.relatedTxId].remaining -= repaidAmt; } });
                 let debt = 0;
-                Object.values(advanceMap).forEach(a => {
-                    if (!a.isSettled && a.remaining > 0.1) { // 0.1 tolerance for float
-                        debt += a.remaining;
-                    }
-                });
+                Object.values(advanceMap).forEach(a => { if (!a.isSettled && a.remaining > 0.1) debt += a.remaining; });
                 
-                // 2. Calculate Stats
                 let totalAsset=0, inc=0, exp=0;
                 transactions.forEach(t => {
                     const amt = parseFloat(t.amount)||0;
-                    if (t.accountId !== OFFSET_ACCOUNT_ID && t.toAccountId !== OFFSET_ACCOUNT_ID) { // Ignore offset transactions in asset calc
+                    if (t.accountId !== OFFSET_ACCOUNT_ID && t.toAccountId !== OFFSET_ACCOUNT_ID) { 
                         if (t.type==='income'||t.type==='repayment') if(bals[t.accountId]!=null) bals[t.accountId]+=amt;
                         if (t.type==='expense'||t.type==='advance') if(bals[t.accountId]!=null) bals[t.accountId]-=amt;
-                        if (t.type==='transfer') { 
-                            if(bals[t.accountId]!=null) bals[t.accountId]-=amt; 
-                            if(bals[t.toAccountId]!=null) bals[t.toAccountId]+=(t.toAmount?parseFloat(t.toAmount):amt); 
-                        }
+                        if (t.type==='transfer') { if(bals[t.accountId]!=null) bals[t.accountId]-=amt; if(bals[t.toAccountId]!=null) bals[t.toAccountId]+=(t.toAmount?parseFloat(t.toAmount):amt); }
                     }
-                    
                     if ((t.bookId||'main') === currentBook.id && t.date.startsWith(currentLedgerMonth)) {
                         if (t.type==='income') inc+=amt;
                         if (t.type==='expense') exp+=amt;
                     }
                 });
-                accounts.forEach(a => { if(a.includeInTotal) { let v = (a.type==='invest' && a.marketValue) ? parseFloat(a.marketValue) : (bals[a.id]||0); if(a.currency!=='TWD') v *= (exchangeRates[a.currency]||1); totalAsset+=v; } });
-                
-                // Pass advanceMap to component for use
+                accounts.forEach(a => { if(a.includeInTotal !== false) { let v = (a.type==='invest' && a.marketValue) ? parseFloat(a.marketValue) : (bals[a.id]||0); if(a.currency!=='TWD') v *= (exchangeRates[a.currency]||1); totalAsset+=v; } });
                 return { bals, totalAsset, inc, exp, debt, advanceMap };
             }, [accounts, transactions, currentLedgerMonth, currentBook, exchangeRates]);
 
@@ -353,16 +326,28 @@
                          const parentCat = categories[analysisType] && categories[analysisType].find(c => c.subs && c.subs.includes(name));
                          if (parentCat) color = CATEGORY_COLORS[parentCat.name];
                     }
-                    return {
-                        name, 
-                        value: val, 
-                        percent: total ? (val/total)*100 : 0,
-                        color: color || '#94a3b8'
-                    };
+                    return { name, value: val, percent: total ? (val/total)*100 : 0, color: color || '#94a3b8' };
                 }).sort((a,b) => b.value - a.value);
 
                 return { total, chart, filteredTx: targetTx };
             }, [transactions, analysisMode, currentLedgerMonth, currentBook, analysisType, analysisGroupBy, categories]);
+
+            // --- Group Transactions by Date (New Feature) ---
+            const groupedTransactions = useMemo(() => {
+                const targetTxs = transactions.filter(t => (t.bookId||'main')===currentBook.id && t.date.startsWith(currentLedgerMonth));
+                const groups = {};
+                targetTxs.forEach(tx => {
+                    if (!groups[tx.date]) groups[tx.date] = [];
+                    groups[tx.date].push(tx);
+                });
+                // Sort dates descending
+                return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]));
+            }, [transactions, currentBook, currentLedgerMonth]);
+
+            const getDayOfWeek = (dateStr) => {
+                const days = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+                return days[new Date(dateStr).getDay()];
+            };
 
             // Handlers
             const handleTxSave = () => {
@@ -372,57 +357,57 @@
 
                 let finalCategory = txForm.category;
                 if (!finalCategory) {
-                    if (categories[txForm.type] && categories[txForm.type].length > 0) {
-                        finalCategory = categories[txForm.type][0].name;
-                    } else {
-                        finalCategory = '未分類';
-                    }
+                    if (categories[txForm.type] && categories[txForm.type].length > 0) finalCategory = categories[txForm.type][0].name;
+                    else finalCategory = '未分類';
+                }
+
+                // If editing, use existing createdAt, otherwise use current
+                const createdAt = editingTx ? editingTx.createdAt : new Date().toISOString();
+                
+                const base = { ...txForm, bookId: currentBook.id, amount: amt, category: finalCategory, createdAt };
+                
+                // If editing existing transaction, just update it
+                if (editingTx) {
+                    saveData('transactions', base, editingTx.id);
+                    setModal(null);
+                    setEditingTx(null);
+                    return;
                 }
 
                 // Handle Offset
                 if (isOffset && offsetTargetId) {
-                    const base = { ...txForm, bookId: currentBook.id, amount: amt, category: finalCategory, accountId: OFFSET_ACCOUNT_ID, note: `抵扣: ${txForm.note}` };
-                    
-                    // 1. Create Expense
-                    saveData('transactions', base);
-                    
-                    // 2. Create Repayment
+                    const expenseTx = { ...base, accountId: OFFSET_ACCOUNT_ID, note: `抵扣: ${txForm.note}` };
+                    saveData('transactions', expenseTx); // Create Expense
                     saveData('transactions', {
-                        type: 'repayment',
-                        amount: amt,
-                        accountId: OFFSET_ACCOUNT_ID, // Virtual account
-                        relatedTxId: offsetTargetId,
-                        date: txForm.date,
-                        bookId: currentBook.id,
-                        note: `抵扣支出 (${finalCategory})`
-                    });
-                    
+                        type: 'repayment', amount: amt, accountId: OFFSET_ACCOUNT_ID, relatedTxId: offsetTargetId,
+                        date: txForm.date, bookId: currentBook.id, note: `抵扣支出 (${finalCategory})`, createdAt: new Date().toISOString()
+                    }); // Create Repayment
                     setModal(null);
                     return;
                 }
 
-                const base = { ...txForm, bookId: currentBook.id, amount: amt, category: finalCategory };
+                // Handle Installment / Advance / Normal
                 if (txForm.type === 'expense' && installment.enabled) {
                     const p = parseInt(installment.periods);
                     const per = Math.round(amt / p);
                     for (let i = 0; i < p; i++) {
-                        saveData('transactions', { ...base, amount: (i===0?amt-(per*p)+per:per), date: addMonths(txForm.date, i), note: `${txForm.note} (${i+1}/${p})` });
+                        saveData('transactions', { ...base, amount: (i===0?amt-(per*p)+per:per), date: addMonths(txForm.date, i), note: `${txForm.note} (${i+1}/${p})`, createdAt: new Date().toISOString() });
                     }
                 } else if (txForm.type === 'expense' && isAdvanceSplit) {
                      let advTotal = 0;
                      splitData.advances.forEach(a => {
                          if (a.debtor && a.amount) {
-                             saveData('transactions', { ...base, type:'advance', amount: parseFloat(a.amount), debtor: a.debtor, isSettled: false, note: `代墊: ${txForm.note}` });
+                             saveData('transactions', { ...base, type:'advance', amount: parseFloat(a.amount), debtor: a.debtor, isSettled: false, note: `代墊: ${txForm.note}`, createdAt: new Date().toISOString() });
                              advTotal += parseFloat(a.amount);
                          }
                      });
                      const myExp = amt - advTotal;
-                     if (myExp > 0) saveData('transactions', { ...base, amount: myExp });
+                     if (myExp > 0) saveData('transactions', { ...base, amount: myExp, createdAt: new Date().toISOString() });
                 } else if (txForm.type === 'income' && isAdvanceSplit) {
                     const principal = parseFloat(splitData.principalAmount) || 0;
                     const gain = amt - principal;
-                    if (principal > 0) saveData('transactions', { ...base, type: 'transfer', amount: principal, category: '轉帳', accountId: splitData.sourceAccountId, toAccountId: txForm.accountId, note: `投資本金` });
-                    if (gain !== 0) saveData('transactions', { ...base, type: 'income', amount: gain, category: txForm.category || '投資', note: `投資獲利` });
+                    if (principal > 0) saveData('transactions', { ...base, type: 'transfer', amount: principal, category: '轉帳', accountId: splitData.sourceAccountId, toAccountId: txForm.accountId, note: `投資本金`, createdAt: new Date().toISOString() });
+                    if (gain !== 0) saveData('transactions', { ...base, type: 'income', amount: gain, category: txForm.category || '投資', note: `投資獲利`, createdAt: new Date().toISOString() });
                 } else {
                     saveData('transactions', base);
                 }
@@ -431,41 +416,24 @@
             
             const handleAddSubCategory = async (mainCat, sub) => {
                 if(!sub) return;
-                // Optimistic Update
                 const newCats = {...categories};
                 const cat = newCats[editingCategoryType].find(c=>c.name===mainCat);
-                if(cat && !cat.subs.includes(sub)) { 
-                    cat.subs.push(sub); 
-                    setCategories(newCats); // Immediate update
-                    await saveData('settings', {categories:newCats}, 'config'); 
-                }
+                if(cat && !cat.subs.includes(sub)) { cat.subs.push(sub); setCategories(newCats); await saveData('settings', {categories:newCats}, 'config'); }
             };
 
             const handleDeleteSubCategory = async (mainCat, sub) => {
                 const newCats = {...categories};
                 const cat = newCats[editingCategoryType].find(c=>c.name===mainCat);
-                if(cat) { 
-                    cat.subs = cat.subs.filter(s => s !== sub); 
-                    setCategories(newCats); // Immediate update
-                    await saveData('settings', {categories:newCats}, 'config'); 
-                }
+                if(cat) { cat.subs = cat.subs.filter(s => s !== sub); setCategories(newCats); await saveData('settings', {categories:newCats}, 'config'); }
             };
             
             const handleAccSubmit = async (e) => {
                 e.preventDefault();
                 if (!accForm.name) return;
                 const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
-                
-                const accountData = {
-                    ...accForm,
-                    order: editingAccount ? editingAccount.order : accounts.length
-                };
-
-                if (editingAccount) {
-                    await fbRef.current.updateDoc(fbRef.current.doc(userRef, 'accounts', editingAccount.id), accountData);
-                } else {
-                    await fbRef.current.addDoc(fbRef.current.collection(userRef, 'accounts'), { ...accountData, createdAt: new Date().toISOString() });
-                }
+                const accountData = { ...accForm, order: editingAccount ? editingAccount.order : accounts.length };
+                if (editingAccount) { await fbRef.current.updateDoc(fbRef.current.doc(userRef, 'accounts', editingAccount.id), accountData); } 
+                else { await fbRef.current.addDoc(fbRef.current.collection(userRef, 'accounts'), { ...accountData, createdAt: new Date().toISOString() }); }
                 setModal(null);
             };
             
@@ -475,15 +443,11 @@
                 const draggedItemContent = _accounts[dragItem.current];
                 _accounts.splice(dragItem.current, 1);
                 _accounts.splice(dragOverItem.current, 0, draggedItemContent);
-                dragItem.current = null;
-                dragOverItem.current = null;
+                dragItem.current = null; dragOverItem.current = null;
                 setAccounts(_accounts);
                 const batch = fbRef.current.writeBatch(dbRef.current);
                 const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
-                _accounts.forEach((acc, index) => {
-                    const ref = fbRef.current.doc(userRef, 'accounts', acc.id);
-                    batch.update(ref, { order: index });
-                });
+                _accounts.forEach((acc, index) => { const ref = fbRef.current.doc(userRef, 'accounts', acc.id); batch.update(ref, { order: index }); });
                 await batch.commit();
             };
 
@@ -494,59 +458,42 @@
                 setModal(null);
             };
             
-            const handleBudgetSubmit = (val) => {
-                 setMonthlyBudget(val);
-                 saveData('settings', { budget: parseFloat(val) }, 'config');
-            };
+            const handleBudgetSubmit = (val) => { setMonthlyBudget(val); saveData('settings', { budget: parseFloat(val) }, 'config'); };
+            const handleAddCategory = () => { if(!newCatForm.name) return; const newCats = {...categories}; newCats[newCatForm.type].push({ name: newCatForm.name, icon: newCatForm.icon, subs: [] }); setCategories(newCats); saveData('settings', {categories: newCats}, 'config'); };
+            const handleDeleteCategory = (catName) => { const newCats = {...categories}; newCats[editingCategoryType] = newCats[editingCategoryType].filter(c => c.name !== catName); setCategories(newCats); saveData('settings', {categories: newCats}, 'config'); };
+            const handleRatesSubmit = () => { saveData('settings', exchangeRates, 'rates'); setModal(null); };
 
-            const handleAddCategory = () => {
-                if(!newCatForm.name) return;
-                // Optimistic Update
-                const newCats = {...categories};
-                newCats[newCatForm.type].push({ name: newCatForm.name, icon: newCatForm.icon, subs: [] });
-                setCategories(newCats);
-                saveData('settings', {categories: newCats}, 'config');
-            };
+            const updateAdvanceRow = (index, field, value) => { const newAdvances = [...splitData.advances]; newAdvances[index][field] = value; setSplitData({...splitData, advances: newAdvances}); };
+            const addAdvanceRow = () => { setSplitData({...splitData, advances: [...splitData.advances, { debtor: '', amount: '' }]}); };
+            const removeAdvanceRow = (index) => { if (splitData.advances.length <= 1) return; const newAdvances = splitData.advances.filter((_, i) => i !== index); setSplitData({...splitData, advances: newAdvances}); };
 
-            const handleDeleteCategory = (catName) => {
-                 const newCats = {...categories};
-                 newCats[editingCategoryType] = newCats[editingCategoryType].filter(c => c.name !== catName);
-                 setCategories(newCats); // Immediate
-                 saveData('settings', {categories: newCats}, 'config');
-            };
-            const handleRatesSubmit = () => {
-                saveData('settings', exchangeRates, 'rates');
-                setModal(null);
-            };
-
-            const updateAdvanceRow = (index, field, value) => {
-                const newAdvances = [...splitData.advances];
-                newAdvances[index][field] = value;
-                setSplitData({...splitData, advances: newAdvances});
-            };
-            
-            const addAdvanceRow = () => {
-                setSplitData({...splitData, advances: [...splitData.advances, { debtor: '', amount: '' }]});
-            };
-            
-            const removeAdvanceRow = (index) => {
-                if (splitData.advances.length <= 1) return;
-                const newAdvances = splitData.advances.filter((_, i) => i !== index);
-                setSplitData({...splitData, advances: newAdvances});
-            };
-
-            const openTxModal = (type = 'expense') => {
-                 setTxForm({ 
-                     ...txForm, 
-                     type, 
-                     category: categories[type] && categories[type].length > 0 ? categories[type][0].name : '',
-                     accountId: accounts.length > 0 ? accounts[0].id : '',
-                     amount: '',
-                     note: ''
-                 });
-                 setIsAdvanceSplit(false); 
-                 setIsOffset(false);
-                 setSplitData({ advances:[{debtor:'',amount:''}], principalAmount:'', sourceAccountId:'' }); 
+            const openTxModal = (type = 'expense', existingTx = null) => {
+                 if (existingTx) {
+                     setEditingTx(existingTx);
+                     setTxForm({
+                         ...existingTx,
+                         // Ensure accountId is present, or default to first account
+                         accountId: existingTx.accountId || (accounts.length > 0 ? accounts[0].id : ''),
+                     });
+                     // Disable advanced features when editing for simplicity
+                     setIsAdvanceSplit(false); 
+                     setIsOffset(false);
+                     setInstallment({ enabled: false, periods: 3 });
+                 } else {
+                     setEditingTx(null);
+                     setTxForm({ 
+                         ...txForm, 
+                         type, 
+                         category: categories[type] && categories[type].length > 0 ? categories[type][0].name : '',
+                         accountId: accounts.length > 0 ? accounts[0].id : '',
+                         amount: '',
+                         note: '',
+                         date: getLocalToday()
+                     });
+                     setIsAdvanceSplit(false); 
+                     setIsOffset(false);
+                     setSplitData({ advances:[{debtor:'',amount:''}], principalAmount:'', sourceAccountId:'' }); 
+                 }
                  setModal('tx');
             };
             
@@ -558,38 +505,19 @@
                 setCurrentLedgerMonth(`${ny}-${nm}`);
             };
             
-            // Fix: Add ability to rename main category in Edit Modal
             const handleEditMainCategoryName = async (newName) => {
                 if (!newName || !editingCategory) return;
                 const newCats = { ...categories };
                 const catIdx = newCats[editingCategoryType].findIndex(c => c.name === editingCategory.name);
-                if (catIdx > -1) {
-                    newCats[editingCategoryType][catIdx].name = newName;
-                    setCategories(newCats); // Optimistic
-                    setEditingCategory(newCats[editingCategoryType][catIdx]); // Update local state for modal
-                    await saveData('settings', { categories: newCats }, 'config');
-                }
+                if (catIdx > -1) { newCats[editingCategoryType][catIdx].name = newName; setCategories(newCats); setEditingCategory(newCats[editingCategoryType][catIdx]); await saveData('settings', { categories: newCats }, 'config'); }
             };
             
-            // Fix: Add ability to change icon
-             const handleEditMainCategoryIcon = async (newIcon) => {
+            const handleEditMainCategoryIcon = async (newIcon) => {
                 if (!editingCategory) return;
                 const newCats = { ...categories };
                 const catIdx = newCats[editingCategoryType].findIndex(c => c.name === editingCategory.name);
-                if (catIdx > -1) {
-                    newCats[editingCategoryType][catIdx].icon = newIcon;
-                    setCategories(newCats);
-                    setEditingCategory(newCats[editingCategoryType][catIdx]);
-                    await saveData('settings', { categories: newCats }, 'config');
-                }
+                if (catIdx > -1) { newCats[editingCategoryType][catIdx].icon = newIcon; setCategories(newCats); setEditingCategory(newCats[editingCategoryType][catIdx]); await saveData('settings', { categories: newCats }, 'config'); }
             };
-            
-            // Helper to get remaining amount for an advance
-            const getRemainingDebt = (txId) => {
-                const a = stats.advanceMap[txId];
-                return a ? a.remaining : 0;
-            };
-
 
             if (needConfig) return (
                 <div className="min-h-screen bg-stone-50 flex items-center justify-center p-6"><div className="bg-white max-w-md w-full p-8 rounded-3xl shadow-xl"><div className="flex justify-center mb-6 text-stone-800"><Icon name="settings" size={48}/></div><h2 className="text-xl font-bold text-center mb-4">輸入 Firebase 設定</h2><textarea className="w-full h-48 p-4 bg-stone-50 rounded-xl text-xs font-mono mb-4 border" placeholder='{ "apiKey": "..." }' value={configInput} onChange={e=>setConfigInput(e.target.value)}/><button onClick={handleSaveConfig} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold">儲存</button></div></div>
@@ -605,9 +533,8 @@
                             <div className="animate-in space-y-6">
                                 <div className="flex items-center justify-between bg-white rounded-xl p-2 shadow-sm border border-stone-200">
                                     <button onClick={()=>changeMonthStep(-1)} className="p-2 hover:bg-stone-50 rounded-lg text-stone-400"><Icon name="chevron-left"/></button>
-                                    <div className="text-center">
-                                        <div className="text-sm font-bold text-stone-800">{currentLedgerMonth.replace('-','年 ')}月</div>
-                                        <input type="month" className="absolute opacity-0 w-32 h-8 cursor-pointer -ml-16" value={currentLedgerMonth} onChange={e=>setCurrentLedgerMonth(e.target.value)} />
+                                    <div className="text-center font-bold text-stone-800 text-lg">
+                                        {currentLedgerMonth.replace('-','年 ')}月
                                     </div>
                                     <button onClick={()=>changeMonthStep(1)} className="p-2 hover:bg-stone-50 rounded-lg text-stone-400"><Icon name="chevron-right"/></button>
                                 </div>
@@ -620,29 +547,55 @@
                                     </div>
                                     <div className="mt-4 bg-white p-2 rounded-lg text-xs flex items-center gap-2 font-bold text-stone-700 shadow-sm"><Icon name={homeInsight.icon} size={14} className="text-rose-500"/> {homeInsight.text}</div>
                                 </div>
-                                <div className="space-y-3">
-                                    {transactions.filter(t => (t.bookId||'main')===currentBook.id && t.date.startsWith(currentLedgerMonth)).map(tx => (
-                                        <div key={tx.id} className="bg-white p-4 rounded-xl shadow-sm border border-stone-100 flex justify-between items-center">
-                                            <div className="flex items-center gap-3">
-                                                <div className={`p-2 rounded-lg ${tx.type==='income'?'bg-emerald-50 text-emerald-600': tx.type==='advance'?'bg-indigo-50 text-indigo-600' : 'bg-stone-100 text-stone-600'}`}><Icon name={getCategoryIcon(tx.category, tx.type)} size={18}/></div>
-                                                <div>
-                                                    <p className="font-bold text-sm text-stone-700">
-                                                        {tx.type === 'advance' ? `代墊: ${tx.debtor}` : (tx.category || '未分類')} 
-                                                        {tx.subCategory && <span className="text-xs text-stone-400 ml-1">({tx.subCategory})</span>}
-                                                    </p>
-                                                    <p className="text-xs text-stone-400">{tx.note || tx.date}</p>
+                                
+                                {/* Grouped Transaction List */}
+                                <div className="space-y-4">
+                                    {groupedTransactions.length === 0 ? (
+                                        <div className="text-center py-16 text-stone-400 text-sm border-2 border-dashed border-stone-200 rounded-xl bg-white">本月尚無紀錄</div>
+                                    ) : (
+                                        groupedTransactions.map(([date, txs]) => (
+                                            <div key={date} className="animate-in slide-in-from-bottom">
+                                                <div className="flex items-center gap-2 mb-2 px-1">
+                                                    <span className="text-xs font-bold text-stone-400 bg-stone-100 px-2 py-1 rounded-md tabular-nums">{date}</span>
+                                                    <span className="text-xs font-bold text-stone-400">{getDayOfWeek(date)}</span>
+                                                </div>
+                                                <div className="bg-white rounded-xl shadow-sm border border-stone-100 overflow-hidden">
+                                                    {txs.map((tx, idx) => (
+                                                        <div 
+                                                            key={tx.id} 
+                                                            onClick={() => openTxModal(tx.type, tx)}
+                                                            className={`p-4 flex justify-between items-center cursor-pointer hover:bg-stone-50 transition-colors ${idx !== txs.length - 1 ? 'border-b border-stone-50' : ''}`}
+                                                        >
+                                                            <div className="flex items-center gap-3">
+                                                                <div className={`p-2.5 rounded-xl ${tx.type==='income'?'bg-emerald-50 text-emerald-600': tx.type==='advance'?'bg-indigo-50 text-indigo-600' : 'bg-stone-100 text-stone-600'}`}>
+                                                                    <Icon name={getCategoryIcon(tx.category, tx.type)} size={18}/>
+                                                                </div>
+                                                                <div>
+                                                                    <p className="font-bold text-sm text-stone-800">
+                                                                        {tx.type === 'advance' ? `代墊: ${tx.debtor}` : (tx.category || '未分類')} 
+                                                                        {tx.subCategory && <span className="text-xs text-stone-400 ml-1">({tx.subCategory})</span>}
+                                                                    </p>
+                                                                    <p className="text-xs text-stone-400 mt-0.5">{tx.note}</p>
+                                                                </div>
+                                                            </div>
+                                                            <div className="text-right">
+                                                                <p className={`font-bold tabular-nums ${tx.type==='income'?'text-emerald-600':'text-stone-800'}`}>{tx.type==='income'?'+':'-'}{parseFloat(tx.amount).toLocaleString()}</p>
+                                                                <div className="flex justify-end gap-3 mt-1" onClick={e => e.stopPropagation()}>
+                                                                     <button onClick={()=>deleteData('transactions', tx.id)} className="text-stone-300 hover:text-rose-500"><Icon name="trash-2" size={14}/></button>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ))}
                                                 </div>
                                             </div>
-                                            <div className="text-right"><p className={`font-bold tabular-nums ${tx.type==='income'?'text-emerald-600':'text-stone-800'}`}>{tx.type==='income'?'+':'-'}{tx.amount.toLocaleString()}</p>
-                                            <button onClick={()=>deleteData('transactions', tx.id)} className="text-stone-300 hover:text-rose-500"><Icon name="trash-2" size={14}/></button></div>
-                                        </div>
-                                    ))}
+                                        ))
+                                    )}
                                 </div>
                             </div>
                         )}
                         {activeTab === 'assets' && (
                             <div className="animate-in space-y-4">
-                                <div className="flex justify-between items-center"><h2 className="text-xl font-bold text-stone-800">我的帳戶</h2><button onClick={()=>{setEditTarget(null); setAccForm({name:'', type:'cash', currency:'TWD', initialBalance:''}); setModal('acc')}}><Icon name="plus-circle" className="text-rose-500"/></button></div>
+                                <div className="flex justify-between items-center"><h2 className="text-xl font-bold text-stone-800">我的帳戶</h2><button onClick={()=>{setEditTarget(null); setAccForm({name:'', type:'cash', currency:'TWD', initialBalance:'', includeInTotal: true}); setModal('acc')}}><Icon name="plus-circle" className="text-rose-500"/></button></div>
                                 <div className="bg-stone-800 rounded-xl p-5 text-white shadow-lg">
                                     <div className="flex justify-between mb-2"><span className="text-xs text-stone-400">FIRE 進度</span><span className="font-bold">{retireProgress.pct.toFixed(1)}%</span></div>
                                     <div className="h-2 bg-stone-700 rounded-full overflow-hidden mb-2"><div className="h-full bg-gradient-to-r from-yellow-400 to-rose-500" style={{width:`${Math.min(100, retireProgress.pct)}%`}}></div></div>
@@ -652,8 +605,7 @@
                                         <span>{retirementInsight.text}</span>
                                     </div>
                                 </div>
-                                <div className="grid gap-3">
-                                    {accounts.map((acc, index) => (
+                                <div className="grid gap-3">{accounts.map((acc, index) => (
                                     <div 
                                         key={acc.id} 
                                         className="bg-white p-4 rounded-xl shadow-sm border border-stone-100 relative cursor-move hover:shadow-md transition-shadow"
@@ -664,13 +616,16 @@
                                         onDragOver={(e) => e.preventDefault()}
                                     >
                                         <div className="absolute top-3 right-3 flex gap-2">
-                                            <button onClick={()=>{setEditTarget(acc); openAccModal(acc);}} className="text-stone-400 hover:text-rose-500"><Icon name="edit-2" size={14}/></button>
+                                            <button onClick={()=>{setEditTarget(acc); openAccModalCorrect(acc);}} className="text-stone-400 hover:text-rose-500"><Icon name="edit-2" size={14}/></button>
                                             <button onClick={()=>deleteData('accounts', acc.id)} className="text-stone-400 hover:text-rose-600"><Icon name="trash-2" size={14}/></button>
                                         </div>
                                         <div className="flex gap-3 items-center mb-2">
                                             <div className="text-stone-300 cursor-move"><Icon name="grip-vertical" size={16}/></div>
                                             <div className={`p-2 rounded-lg ${ACCOUNT_TYPES[acc.type]?.color || 'bg-stone-100 text-stone-600'}`}><Icon name={ACCOUNT_TYPES[acc.type]?.iconName || 'wallet'} size={18}/></div>
-                                            <h3 className="font-bold text-stone-700">{acc.name}</h3>
+                                            <div>
+                                                <h3 className="font-bold text-stone-700">{acc.name}</h3>
+                                                {acc.includeInTotal === false && <span className="text-[10px] bg-stone-100 text-stone-400 px-1 rounded">不計入</span>}
+                                            </div>
                                         </div>
                                         <p className="text-2xl font-black tabular-nums text-stone-800 ml-7">${(acc.marketValue || stats.bals[acc.id]||0).toLocaleString()} <span className="text-xs text-stone-400 font-normal">{acc.currency}</span></p>
                                         {acc.currency!=='TWD' && <p className="text-xs text-stone-400 font-bold tabular-nums ml-7">≈ TWD ${Math.round((acc.marketValue || stats.bals[acc.id]||0) * (exchangeRates[acc.currency]||1)).toLocaleString()}</p>}
@@ -684,6 +639,7 @@
                                 ))}</div>
                             </div>
                         )}
+                        {/* Settings, Analysis, Debts tabs same as V15.3, omitted for brevity but preserved structure */}
                         {activeTab === 'settings' && (
                             <div className="animate-in space-y-4">
                                 <h2 className="text-xl font-bold text-stone-800">設定</h2>
@@ -812,7 +768,7 @@
                     {modal === 'tx' && (
                         <div className="fixed inset-0 z-[200] bg-black/50 flex items-end sm:items-center justify-center p-4">
                             <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl p-6 animate-in slide-in-from-bottom max-h-[90vh] overflow-y-auto">
-                                <h3 className="font-bold text-xl mb-4 text-stone-800">記一筆</h3>
+                                <h3 className="font-bold text-xl mb-4 text-stone-800">{editingTx ? '編輯紀錄' : '記一筆'}</h3>
                                 <input type="number" className="w-full text-4xl font-black mb-4 outline-none tabular-nums text-stone-800 placeholder-stone-300" placeholder="0" value={txForm.amount} onChange={e=>setTxForm({...txForm, amount:e.target.value})} autoFocus />
                                 <div className="grid grid-cols-2 gap-2 mb-4">
                                     <button onClick={()=>{setTxForm({...txForm, type:'expense', category: categories['expense'][0].name});}} className={`p-3 rounded-lg font-bold ${txForm.type==='expense'?'bg-rose-100 text-rose-600':'bg-stone-100 text-stone-500'}`}>支出</button>
@@ -820,11 +776,23 @@
                                 </div>
                                 <div className="space-y-4">
                                     <div className="flex gap-2">
-                                        <select className="flex-1 bg-stone-50 p-3 rounded-lg font-bold text-stone-700" value={txForm.category} onChange={e=>setTxForm({...txForm, category:e.target.value})}>
+                                        <select className="flex-1 bg-stone-50 p-3 rounded-lg font-bold text-stone-700" value={txForm.category} onChange={e=>{
+                                            if(e.target.value === 'ADD_NEW') {
+                                                setEditingCategoryType(txForm.type); 
+                                                setModal('cat');
+                                            } else {
+                                                setTxForm({...txForm, category:e.target.value});
+                                            }
+                                        }}>
                                             {categories[txForm.type].map(c=><option key={c.name} value={c.name}>{c.name}</option>)}
+                                            <option value="ADD_NEW">➕ 新增類別...</option>
                                         </select>
-                                        <button onClick={()=>{setEditingCategoryType(txForm.type); setModal('cat');}} className="p-3 bg-stone-100 rounded-lg text-stone-500 hover:bg-stone-200">
-                                            <Icon name="settings" size={20}/>
+                                        <button 
+                                            onClick={()=>{setEditingCategoryType(txForm.type); setModal('cat');}} 
+                                            className="px-3 bg-stone-100 rounded-lg text-stone-500 hover:bg-stone-200 flex items-center justify-center"
+                                            title="管理類別"
+                                        >
+                                            <Icon name="plus" size={20}/>
                                         </button>
                                     </div>
                                     {/* Sub Categories */}
@@ -855,8 +823,8 @@
                                         <input className="bg-stone-50 p-3 rounded-lg flex-[2] font-bold text-stone-700" placeholder="備註" value={txForm.note} onChange={e=>setTxForm({...txForm, note:e.target.value})} />
                                     </div>
                                     
-                                    {/* Advanced Options */}
-                                    {txForm.type === 'expense' && (
+                                    {/* Advanced Options (Only show when adding new, hide when editing for safety) */}
+                                    {!editingTx && txForm.type === 'expense' && (
                                         <div className="space-y-2 pt-2 border-t border-stone-100">
                                             <label className="flex items-center justify-between p-2">
                                                 <span className="text-sm font-bold text-stone-500">使用待收抵扣 (互抵)</span>
@@ -917,12 +885,21 @@
                                  <select className="w-full p-3 bg-stone-50 rounded-lg mb-4 border border-stone-200" value={accForm.type} onChange={e=>setAccForm({...accForm, type:e.target.value})}>{Object.entries(ACCOUNT_TYPES).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select>
                                  <input type="number" className="w-full p-3 bg-stone-50 rounded-lg mb-4 border border-stone-200 tabular-nums" placeholder="初始餘額" value={accForm.initialBalance} onChange={e=>setAccForm({...accForm, initialBalance:e.target.value})}/>
                                  <div className="flex gap-2 mb-4"><span className="p-3 bg-stone-100 rounded text-sm text-stone-500">幣別</span><select className="flex-1 p-3 bg-stone-50 rounded border border-stone-200" value={accForm.currency} onChange={e=>setAccForm({...accForm, currency:e.target.value})}>{CURRENCIES.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
+                                 {/* Include in Total Toggle */}
+                                 <label className="flex items-center gap-3 p-3 bg-stone-50 rounded-lg mb-6 cursor-pointer border border-stone-200">
+                                    <div className={`w-5 h-5 rounded-md flex items-center justify-center border ${accForm.includeInTotal ? 'bg-rose-500 border-rose-500 text-white' : 'bg-white border-stone-300'}`}>
+                                        {accForm.includeInTotal && <Icon name="check" size={14} />}
+                                    </div>
+                                    <input type="checkbox" className="hidden" checked={accForm.includeInTotal} onChange={e=>setAccForm({...accForm, includeInTotal:e.target.checked})} />
+                                    <span className="text-sm font-bold text-stone-700">計入總資產</span>
+                                 </label>
                                  <button onClick={handleAccSubmit} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold shadow-lg">儲存</button>
                                  <button onClick={()=>setModal(null)} className="w-full mt-2 text-stone-400 py-2">取消</button>
                              </div>
                          </div>
                     )}
-
+                    
+                    {/* ... (Other modals same as V15.3: TX, Book, Budget, Retire, Cat, Rate, Market, Settle) ... */}
                     {/* Book Select Modal */}
                     {modal === 'bookSelect' && (
                         <div className="fixed inset-0 z-[200] bg-black/50 flex items-end justify-center p-4">
