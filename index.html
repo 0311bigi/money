@@ -577,12 +577,33 @@
                         jsonData.forEach(row => {
                             // Basic mapping (adjust keys based on export format)
                             // 🟢 修改：強制處理日期格式
-                            let date = row['日期'];
-                            // 如果 Excel 讀進來是數字 (例如 45334)，這裡需要處理，或者簡單轉成字串防止當機
-                            if (typeof date === 'number') {
-                            // 簡易轉換 Excel 日期 (這是一個簡單解法，轉換 Excel 序號為 JS 日期)
-                            const excelDate = new Date(Math.round((date - 25569)*86400*1000));
-                            date = excelDate.toISOString().split('T')[0]; 
+                   let rawDate = row['日期'];
+                   let date = '';
+
+                    if (!rawDate) return; // 如果沒日期就跳過
+
+                     // 情境 A：Excel 把日期當成純數字序號 (例如 45334)
+                     if (typeof rawDate === 'number') {
+                             const excelDate = new Date(Math.round((rawDate - 25569) * 86400 * 1000));
+                             const year = excelDate.getFullYear();
+                             const month = String(excelDate.getMonth() + 1).padStart(2, '0');
+                             const day = String(excelDate.getDate()).padStart(2, '0');
+                             date = `${year}-${month}-${day}`;
+                            } 
+                            // 情境 B：Excel 給的是文字 (例如 "2026/2/11 18:19" 或 "2026-02-11")
+                            else {
+                            try {
+                            let d = new Date(rawDate);
+                            if (isNaN(d.getTime())) {
+                                d = new Date(); // 看不懂的格式就當作今天
+                            }
+                            const year = d.getFullYear();
+                            const month = String(d.getMonth() + 1).padStart(2, '0'); 
+                            const day = String(d.getDate()).padStart(2, '0');
+                            date = `${year}-${month}-${day}`;
+                             } catch (e) {
+                             return; // 嚴重錯誤就跳過這筆
+                             }
                             }
                             // 確保最終存入的是字串
                             date = String(date || '').trim().replace(/\//g, '-'); // 把 2024/01/01 改為 2024-01-01
@@ -1204,5 +1225,6 @@
     </script>
 </body>
 </html>
+
 
 
