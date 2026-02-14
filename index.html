@@ -647,11 +647,11 @@
                             const category = row['主類別'] || '未分類';
                             const subCategory = row['子類別'] || '';
                             const note = row['備註'] || '';
-                            const accName = row['帳戶'];
+                            const accName = String(row['帳戶'] || '').trim();
                             if (!date || isNaN(amount)) return;
                             let type = 'expense';
                             if (row['類型'] === '收入') type = 'income'; else if (row['類型'] === '轉帳') type = 'transfer'; else if (row['類型'] === '代墊') type = 'advance'; else if (row['類型'] === '還款') type = 'repayment';
-                            const acc = accounts.find(a => a.name === accName);
+                            const acc = accounts.find(a => a.name.trim() === accName.trim());
                             const accountId = acc ? acc.id : (accounts[0]?.id || ''); 
                             let toAccountId = '';
                             if (type === 'transfer' && row['轉入帳戶']) { const toAcc = accounts.find(a => a.name === row['轉入帳戶']); if (toAcc) toAccountId = toAcc.id; }
@@ -1261,3 +1261,4 @@
     </script>
 </body>
 </html>
+
