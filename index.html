@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>雲端帳本 Pro (V16.2)</title>
+    <title>雲端帳本 Pro (V16.3)</title>
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="雲端帳本">
@@ -822,7 +822,15 @@
                         
                         {activeTab === 'assets' && (
                             <div className="animate-in space-y-4">
-                                <div className="flex justify-between items-center"><h2 className="text-xl font-bold text-stone-800">我的帳戶</h2><button onClick={()=>{setEditTarget(null); setAccForm({name:'', type:'cash', currency:'TWD', initialBalance:'', includeInTotal: true}); setModal('acc')}}><Icon name="plus-circle" className="text-rose-500"/></button></div>
+                                {/* 🟢 新增：總資產顯示 (最上方) */}
+                                <div className="flex justify-between items-center mb-4">
+                                    <div>
+                                        <p className="text-sm text-stone-500 font-bold">總資產 (TWD)</p>
+                                        <h2 className="text-3xl font-black text-stone-800 tabular-nums">${stats.totalAsset.toLocaleString()}</h2>
+                                    </div>
+                                    <button onClick={()=>{setEditTarget(null); setAccForm({name:'', type:'cash', currency:'TWD', initialBalance:'', includeInTotal: true}); setModal('acc')}}><Icon name="plus-circle" className="text-rose-500" size={32}/></button>
+                                </div>
+
                                 <div className="bg-stone-800 rounded-xl p-5 text-white shadow-lg">
                                     <div className="flex justify-between mb-2"><span className="text-xs text-stone-400">FIRE 進度</span><span className="font-bold">{retireProgress.pct.toFixed(1)}%</span></div>
                                     <div className="h-2 bg-stone-700 rounded-full overflow-hidden mb-2"><div className="h-full bg-gradient-to-r from-yellow-400 to-rose-500" style={{width:`${Math.min(100, retireProgress.pct)}%`}}></div></div>
