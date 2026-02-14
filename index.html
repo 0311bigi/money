@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>雲端帳本 Pro (V17.3)</title>
+    <title>雲端帳本 Pro (V17.5)</title>
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="雲端帳本">
@@ -204,6 +204,13 @@
                     window.location.reload();
                 } catch(e) { setError({ title:"設定無效", message:e.message }); }
             };
+
+            const resetApp = () => { localStorage.removeItem('my_ledger_firebase_config'); window.location.reload(); };
+
+            useEffect(() => {
+                const timer = setTimeout(() => { if (loading && !needConfig) { setLoading(false); setError({ title: "連線逾時", message: "系統連線過久，可能是：\n1. 未開啟「匿名登入」。\n2. 網域未授權。\n3. API Key 錯誤。" }); } }, 15000); 
+                return () => clearTimeout(timer);
+            }, [loading, needConfig]);
 
             useEffect(() => {
                 if (!sdkReady) return;
@@ -425,18 +432,29 @@
                 return { displayList, stats: { mIncome, mExpense, mTrans }, currentBalance: balance };
             }, [viewingAccount, transactions, accountDetailMonth]);
 
+            // Handlers
             const handleTxSave = () => {
                 const amt = parseFloat(txForm.amount);
                 if (!amt) { alert('請輸入金額'); return; }
-                if (!txForm.accountId && !isOffset) { alert('請選擇帳戶'); return; }
+                
+                // 🟢 轉帳的檢核邏輯
+                if (txForm.type === 'transfer') {
+                    if (!txForm.accountId || !txForm.toAccountId) { alert('請選擇轉出與轉入帳戶'); return; }
+                } else {
+                    if (!txForm.accountId && !isOffset) { alert('請選擇帳戶'); return; }
+                }
 
                 let finalCategory = txForm.category;
-                if (!finalCategory) {
+                if (!finalCategory && txForm.type !== 'transfer') {
                     if (categories[txForm.type] && categories[txForm.type].length > 0) finalCategory = categories[txForm.type][0].name;
                     else finalCategory = '未分類';
+                } else if (txForm.type === 'transfer') {
+                    finalCategory = '轉帳';
                 }
+                
                 const createdAt = editingTx ? editingTx.createdAt : new Date().toISOString();
                 const base = { ...txForm, bookId: currentBook.id, amount: amt, category: finalCategory, createdAt };
+                
                 if (editingTx) {
                     saveData('transactions', base, editingTx.id);
                     setModal(null);
@@ -647,18 +665,37 @@
                             const category = row['主類別'] || '未分類';
                             const subCategory = row['子類別'] || '';
                             const note = row['備註'] || '';
+                            // 🟢 修改：確保帳戶名稱是字串並去除空白
                             const accName = String(row['帳戶'] || '').trim();
+                            
                             if (!date || isNaN(amount)) return;
+
                             let type = 'expense';
-                            if (row['類型'] === '收入') type = 'income'; else if (row['類型'] === '轉帳') type = 'transfer'; else if (row['類型'] === '代墊') type = 'advance'; else if (row['類型'] === '還款') type = 'repayment';
+                            if (row['類型'] === '收入') type = 'income';
+                            else if (row['類型'] === '轉帳') type = 'transfer';
+                            else if (row['類型'] === '代墊') type = 'advance';
+                            else if (row['類型'] === '還款') type = 'repayment';
+                            
+                            // 🟢 修改：比對前先去除雙方的前後空白，增加成功率
                             const acc = accounts.find(a => a.name.trim() === accName.trim());
                             const accountId = acc ? acc.id : (accounts[0]?.id || ''); 
+
                             let toAccountId = '';
-                            if (type === 'transfer' && row['轉入帳戶']) { const toAcc = accounts.find(a => a.name === row['轉入帳戶']); if (toAcc) toAccountId = toAcc.id; }
+                            if (type === 'transfer' && row['轉入帳戶']) {
+                                const toAcc = accounts.find(a => a.name === row['轉入帳戶']);
+                                if (toAcc) toAccountId = toAcc.id;
+                            }
+
                             const newDocRef = fbRef.current.doc(txCol);
-                            batch.set(newDocRef, { date, amount, type, category, subCategory, accountId, toAccountId, note: note + (acc ? '' : ' (匯入:未知帳戶)'), debtor: row['代墊對象'] || '', createdAt: new Date().toISOString() });
+                            batch.set(newDocRef, {
+                                date, amount, type, category, subCategory, accountId, toAccountId,
+                                note: note + (acc ? '' : ' (匯入:未知帳戶)'), 
+                                debtor: row['代墊對象'] || '',
+                                createdAt: new Date().toISOString()
+                            });
                             importCount++;
                         });
+
                         await batch.commit();
                         alert(`成功匯入 ${importCount} 筆交易！`);
                     } catch (err) { console.error("Import failed", err); alert("匯入失敗，請確認檔案格式是否正確。"); } finally { setIsImporting(false); if (fileInputRef.current) fileInputRef.current.value = ''; }
@@ -667,7 +704,7 @@
             };
 
             return (
-                <div className="min-h-screen pb-24 max-w-xl mx-auto bg-stone-50 relative text-stone-800">
+                <div className="min-h-screen pb-24 max-w-xl mx-auto bg-stone-50 relative">
                     <Header currentBook={currentBook} setIsBookSelectOpen={()=>setModal('bookSelect')} user={user} handleGoogleLogin={handleGoogleLogin} />
                     
                     <main className="p-4 space-y-6">
@@ -692,10 +729,10 @@
                                         groupedTransactions.map(([date, txs]) => (
                                             <div key={date} className="animate-in slide-in-from-bottom">
                                                 <div className="flex items-center gap-2 mb-2 px-1">
-                                                    <span className="text-xs font-bold text-stone-500 bg-stone-200 px-2 py-1 rounded-md tabular-nums">{date}</span>
-                                                    <span className="text-xs font-bold text-stone-500">{getDayOfWeek(date)}</span>
+                                                    <span className="text-xs font-bold text-stone-400 bg-stone-100 px-2 py-1 rounded-md tabular-nums">{date}</span>
+                                                    <span className="text-xs font-bold text-stone-400">{getDayOfWeek(date)}</span>
                                                 </div>
-                                                <div className="bg-white rounded-xl shadow-sm border border-stone-200 overflow-hidden">
+                                                <div className="bg-white rounded-xl shadow-sm border border-stone-100 overflow-hidden">
                                                     {txs.map((tx, idx) => {
                                                         const acc = accounts.find(a => a.id === tx.accountId);
                                                         let accName = acc ? acc.name : (tx.accountId === OFFSET_ACCOUNT_ID ? '抵扣' : '未知');
@@ -703,23 +740,25 @@
                                                             const toAcc = accounts.find(a => a.id === tx.toAccountId);
                                                             accName += ` ➝ ${toAcc ? toAcc.name : '未知'}`;
                                                         }
-                                                        let rowStyle = "bg-white border-l-4 border-white"; 
+
+                                                        // 🟢 視覺優化：根據類型設定背景色與邊框
+                                                        let rowStyle = "bg-white border-l-4 border-white"; // 預設支出 (白底紅字)
                                                         if (tx.type === 'expense') rowStyle = "bg-white border-l-4 border-rose-500";
                                                         if (tx.type === 'income') rowStyle = "bg-emerald-50 border-l-4 border-emerald-500";
-                                                        if (tx.type === 'transfer') rowStyle = "bg-stone-50 border-l-4 border-stone-400";
+                                                        if (tx.type === 'transfer') rowStyle = "bg-slate-50 border-l-4 border-slate-400";
                                                         if (tx.type === 'advance') rowStyle = "bg-indigo-50 border-l-4 border-indigo-500";
 
                                                         return (
                                                             <div key={tx.id} onClick={() => openTxModal(tx.type, tx)} className={`p-4 flex justify-between items-center cursor-pointer hover:bg-stone-50 transition-colors ${idx !== txs.length - 1 ? 'border-b border-stone-100' : ''} ${rowStyle}`}>
                                                                 <div className="flex items-center gap-3">
                                                                     <div className={`p-2.5 rounded-xl ${tx.type==='income'?'bg-emerald-100 text-emerald-600': tx.type==='advance'?'bg-indigo-100 text-indigo-600' : 'bg-stone-100 text-stone-600'}`}><Icon name={getCategoryIcon(tx.category, tx.type)} size={18}/></div>
-                                                                    <div><p className="font-bold text-sm text-stone-800">{tx.type === 'advance' ? `代墊: ${tx.debtor}` : (tx.category || '未分類')} {tx.subCategory && <span className="text-xs text-stone-500 ml-1">({tx.subCategory})</span>}</p><p className="text-xs text-stone-500 mt-0.5">{tx.note}</p></div>
+                                                                    <div><p className="font-bold text-sm text-stone-800">{tx.type === 'advance' ? `代墊: ${tx.debtor}` : (tx.category || '未分類')} {tx.subCategory && <span className="text-xs text-stone-400 ml-1">({tx.subCategory})</span>}</p><p className="text-xs text-stone-400 mt-0.5">{tx.note}</p></div>
                                                                 </div>
                                                                 <div className="text-right">
                                                                     <p className={`font-bold tabular-nums ${tx.type==='income'?'text-emerald-600':'text-stone-800'}`}>{tx.type==='income'?'+':'-'}{parseFloat(tx.amount).toLocaleString()}</p>
                                                                     <div className="flex items-center justify-end gap-1 mt-0.5">
-                                                                        <span className="text-xs text-stone-500 bg-stone-200 px-1.5 py-0.5 rounded">{accName}</span>
-                                                                        <button onClick={(e)=>{e.stopPropagation();deleteData('transactions', tx.id)}} className="text-stone-400 hover:text-rose-500 p-1"><Icon name="trash-2" size={14}/></button>
+                                                                        <span className="text-xs text-stone-400 bg-black/5 px-1.5 py-0.5 rounded">{accName}</span>
+                                                                        <button onClick={(e)=>{e.stopPropagation();deleteData('transactions', tx.id)}} className="text-stone-300 hover:text-rose-500 p-1"><Icon name="trash-2" size={14}/></button>
                                                                     </div>
                                                                 </div>
                                                             </div>
@@ -733,42 +772,99 @@
                             </div>
                         )}
                         
+                        {activeTab === 'assets' && (
+                            <div className="animate-in space-y-4">
+                                <div className="flex justify-between items-center mb-4">
+                                    <div>
+                                        <p className="text-sm text-stone-500 font-bold">總資產 (TWD)</p>
+                                        <h2 className="text-3xl font-black text-stone-800 tabular-nums">${stats.totalAsset.toLocaleString()}</h2>
+                                    </div>
+                                    <button onClick={()=>{setEditTarget(null); setAccForm({name:'', type:'cash', currency:'TWD', initialBalance:'', includeInTotal: true}); setModal('acc')}}><Icon name="plus-circle" className="text-rose-500" size={32}/></button>
+                                </div>
+
+                                <div className="bg-stone-800 rounded-xl p-5 text-white shadow-lg">
+                                    <div className="flex justify-between mb-2"><span className="text-xs text-stone-400">FIRE 進度</span><span className="font-bold">{retireProgress.pct.toFixed(1)}%</span></div>
+                                    <div className="h-2 bg-stone-700 rounded-full overflow-hidden mb-2"><div className="h-full bg-gradient-to-r from-yellow-400 to-rose-500" style={{width:`${Math.min(100, retireProgress.pct)}%`}}></div></div>
+                                    <p className="text-xs text-stone-400 flex justify-between"><span>目標 ${Math.round(retireProgress.target/10000).toLocaleString()} 萬</span><span>剩 {retireProgress.years} 年</span></p>
+                                    <div className={`mt-3 p-2 rounded-lg bg-white/10 text-xs flex items-start gap-2 ${retirementInsight.color}`}>
+                                        <Icon name={retirementInsight.icon} size={14} className="mt-0.5"/>
+                                        <span>{retirementInsight.text}</span>
+                                    </div>
+                                </div>
+                                <div className="grid gap-3">{accounts.map((acc, index) => (
+                                    <div key={acc.id} onClick={() => { setViewingAccount(acc); setAccountDetailMonth(currentLedgerMonth); }} className="bg-white p-4 rounded-xl shadow-sm border border-stone-100 relative cursor-pointer hover:shadow-md transition-shadow" draggable onDragStart={() => (dragItem.current = index)} onDragEnter={() => (dragOverItem.current = index)} onDragEnd={handleSort} onDragOver={(e) => e.preventDefault()}>
+                                            <div className="absolute top-3 right-3 flex gap-2" onClick={e => e.stopPropagation()}>
+                                                <button onClick={()=>{setEditTarget(acc); openAccModalCorrect(acc);}} className="text-stone-400 hover:text-rose-500"><Icon name="edit-2" size={14}/></button>
+                                                <button onClick={()=>deleteData('accounts', acc.id)} className="text-stone-400 hover:text-rose-600"><Icon name="trash-2" size={14}/></button>
+                                            </div>
+                                            <div className="flex gap-3 items-center mb-2">
+                                                <div className="text-stone-300 cursor-move" onClick={e => e.stopPropagation()}><Icon name="grip-vertical" size={16}/></div>
+                                                <div className={`p-2 rounded-lg ${ACCOUNT_TYPES[acc.type]?.color || 'bg-stone-100 text-stone-600'}`}><Icon name={ACCOUNT_TYPES[acc.type]?.iconName || 'wallet'} size={18}/></div>
+                                                <div><h3 className="font-bold text-stone-700">{acc.name}</h3>{acc.includeInTotal === false && <span className="text-xs bg-stone-100 text-stone-400 px-1 rounded">不計入</span>}</div>
+                                            </div>
+                                            <p className="text-2xl font-black tabular-nums text-stone-800 ml-7">${(acc.marketValue || stats.bals[acc.id]||0).toLocaleString()} <span className="text-xs text-stone-400 font-normal">{acc.currency}</span></p>
+                                            {acc.currency!=='TWD' && <p className="text-xs text-stone-400 font-bold tabular-nums ml-7">≈ TWD ${Math.round((acc.marketValue || stats.bals[acc.id]||0) * (exchangeRates[acc.currency]||1)).toLocaleString()}</p>}
+                                            {acc.type === 'invest' && (<div className="mt-2 pt-2 border-t flex justify-between items-center text-xs ml-7" onClick={e => e.stopPropagation()}><span className="text-stone-400">成本: ${(stats.bals[acc.id]||0).toLocaleString()}</span><button onClick={()=>{setEditTarget(acc); setNewMarketValue(acc.marketValue||''); setModal('market')}} className="text-rose-500 font-bold bg-rose-50 px-2 py-1 rounded">調整市值</button></div>)}
+                                    </div>
+                                ))}</div>
+                            </div>
+                        )}
+                        {/* Settings, Analysis, Debts tabs same as V15.3, omitted for brevity but preserved structure */}
+                        {activeTab === 'settings' && (
+                            <div className="animate-in space-y-4">
+                                <h2 className="text-xl font-bold text-stone-800">設定</h2>
+                                <button onClick={()=>setModal('budget')} className="w-full bg-white p-4 rounded-xl shadow-sm border border-stone-100 text-left font-bold flex justify-between items-center text-stone-700"><div>月預算設定 <span className="text-xs text-stone-400 font-normal block">目前: ${monthlyBudget.toLocaleString()}</span></div><Icon name="chevron-right" className="text-stone-300"/></button>
+                                <button onClick={()=>{setRetireForm(retirement); setModal('retire')}} className="w-full bg-white p-4 rounded-xl shadow-sm border border-stone-100 text-left font-bold flex justify-between items-center text-stone-700"><div>退休計畫 <span className="text-xs text-stone-400 font-normal block">{retirement.retireAge}歲退休 / 月花費${retirement.monthlyExpense}</span></div><Icon name="chevron-right" className="text-stone-300"/></button>
+                                <button onClick={()=>setModal('cat')} className="w-full bg-white p-4 rounded-xl shadow-sm border border-stone-100 text-left font-bold flex justify-between items-center text-stone-700">類別管理 <Icon name="chevron-right" className="text-stone-300"/></button>
+                                <button onClick={()=>setModal('rate')} className="w-full bg-white p-4 rounded-xl shadow-sm border border-stone-100 text-left font-bold flex justify-between items-center text-stone-700">匯率設定 <Icon name="chevron-right" className="text-stone-300"/></button>
+                                {/* Excel Export/Import Buttons */}
+                                <div className="grid grid-cols-2 gap-3 mt-4">
+                                    <button onClick={handleExport} className="bg-emerald-50 text-emerald-600 p-4 rounded-xl font-bold text-center border border-emerald-100 flex items-center justify-center gap-2"><Icon name="download" size={18}/> 匯出 Excel</button>
+                                    <button onClick={handleImportClick} className="bg-blue-50 text-blue-600 p-4 rounded-xl font-bold text-center border border-blue-100 flex items-center justify-center gap-2"><Icon name="upload" size={18}/> 匯入 Excel</button>
+                                    <input type="file" ref={fileInputRef} onChange={handleImportFile} className="hidden" accept=".xlsx, .xls, .csv" />
+                                </div>
+                                <button onClick={()=>{localStorage.removeItem('my_ledger_firebase_config');window.location.reload()}} className="w-full bg-red-50 text-red-600 p-4 rounded-xl font-bold mt-8 text-center border border-red-100">重設 App 連線</button>
+                                {isImporting && <div className="text-center text-sm text-stone-400 mt-2">正在匯入資料，請稍候...</div>}
+                            </div>
+                        )}
                         {activeTab === 'analysis' && (
                             <div className="animate-in space-y-4">
                                 <h2 className="text-xl font-bold text-stone-800 px-1">收支分析</h2>
-                                <div className="bg-white rounded-xl p-4 shadow-sm border border-stone-200 space-y-3">
-                                    <div className="flex bg-stone-100 p-1 rounded-lg mb-2">
-                                        <button onClick={()=>setAnalysisMode('month')} className={`flex-1 py-1.5 text-sm font-bold rounded-md transition-colors ${analysisMode==='month'?'bg-white text-stone-800 shadow':'text-stone-500'}`}>月報表</button>
-                                        <button onClick={()=>setAnalysisMode('year')} className={`flex-1 py-1.5 text-sm font-bold rounded-md transition-colors ${analysisMode==='year'?'bg-white text-stone-800 shadow':'text-stone-500'}`}>年報表</button>
-                                    </div>
-
+                                <div className="bg-white rounded-xl p-4 shadow-sm border border-stone-100 space-y-3">
                                     <div className="flex justify-between items-center bg-stone-50 rounded-lg p-1">
                                             <button onClick={()=>changeMonthStep(-1)} className="p-2 text-stone-400"><Icon name="chevron-left"/></button>
                                             <div className="relative">
-                                                <span className="font-bold text-stone-700">
-                                                    {analysisMode === 'month' ? currentLedgerMonth.replace('-','年 ') + '月' : currentLedgerMonth.split('-')[0] + '年'}
-                                                </span>
+                                                <span className="font-bold text-stone-700">{currentLedgerMonth.replace('-','年 ')}月</span>
+                                                <input type="month" className="absolute inset-0 opacity-0 w-full h-full cursor-pointer" value={currentLedgerMonth} onChange={e=>setCurrentLedgerMonth(e.target.value)} />
                                             </div>
                                             <button onClick={()=>changeMonthStep(1)} className="p-2 text-stone-400"><Icon name="chevron-right"/></button>
                                     </div>
                                     <div className="flex bg-stone-100 p-1 rounded-lg">
-                                            <button onClick={()=>setAnalysisType('expense')} className={`flex-1 py-2 text-sm font-bold rounded-md ${analysisType==='expense'?'bg-white text-rose-500 shadow':'text-stone-500'}`}>支出</button>
-                                            <button onClick={()=>setAnalysisType('income')} className={`flex-1 py-2 text-sm font-bold rounded-md ${analysisType==='income'?'bg-white text-emerald-500 shadow':'text-stone-500'}`}>收入</button>
+                                            <button onClick={()=>setAnalysisType('expense')} className={`flex-1 py-2 text-sm font-bold rounded-md ${analysisType==='expense'?'bg-white text-rose-500 shadow':'text-stone-400'}`}>支出</button>
+                                            <button onClick={()=>setAnalysisType('income')} className={`flex-1 py-2 text-sm font-bold rounded-md ${analysisType==='income'?'bg-white text-emerald-500 shadow':'text-stone-400'}`}>收入</button>
+                                    </div>
+                                    <div className="flex bg-stone-100 p-1 rounded-lg">
+                                            <button onClick={()=>setAnalysisGroupBy('main')} className={`flex-1 py-2 text-sm font-bold rounded-md ${analysisGroupBy==='main'?'bg-white text-stone-800 shadow':'text-stone-400'}`}>依主分類</button>
+                                            <button onClick={()=>setAnalysisGroupBy('sub')} className={`flex-1 py-2 text-sm font-bold rounded-md ${analysisGroupBy==='sub'?'bg-white text-stone-800 shadow':'text-stone-400'}`}>依子分類</button>
                                     </div>
                                 </div>
-                                <div className="bg-white rounded-xl p-6 shadow-sm border border-stone-200 flex flex-col items-center">
+                                <div className="bg-white rounded-xl p-6 shadow-sm border border-stone-100 flex flex-col items-center">
+                                    {/* Pie Chart SVG */}
                                     <div className="relative h-48 w-48 mb-4">
                                         <svg viewBox="0 0 100 100" className="transform -rotate-90 w-full h-full">
                                             {(() => {
-                                                if (analysisData.chart.length === 1 && analysisData.chart[0].value > 0) return <circle cx="50" cy="50" r="40" fill={analysisData.chart[0].color} />;
+                                                if (analysisData.chart.length === 1 && analysisData.chart[0].value > 0) {
+                                                     return <circle cx="50" cy="50" r="40" fill={analysisData.chart[0].color} />;
+                                                }
                                                 let cumulative = 0;
                                                 return analysisData.chart.map((d, i) => {
                                                     const startA = cumulative * Math.PI * 2; cumulative += d.percent / 100; const endA = cumulative * Math.PI * 2;
                                                     const x1 = 50 + 40 * Math.cos(startA), y1 = 50 + 40 * Math.sin(startA), x2 = 50 + 40 * Math.cos(endA), y2 = 50 + 40 * Math.sin(endA);
                                                     const largeArc = d.percent > 50 ? 1 : 0;
-                                                    return <path key={i} d={`M 50 50 L ${x1} ${y1} A 40 40 0 ${largeArc} 1 ${x2} ${y2} Z`} fill={d.color} stroke="#fff" strokeWidth="1" onClick={() => setExpandedCategory(expandedCategory === d.name ? null : d.name)} style={{cursor: 'pointer'}} />;
+                                                    return <path key={i} d={`M 50 50 L ${x1} ${y1} A 40 40 0 ${largeArc} 1 ${x2} ${y2} Z`} fill={d.color} stroke="#fff" strokeWidth="1" onClick={() => setSelectedCategory(d.name)} style={{cursor: 'pointer'}} />;
                                                 });
                                             })()}
+                                            {analysisData.total === 0 && <circle cx="50" cy="50" r="40" fill="#f5f5f4" />}
                                             <circle cx="50" cy="50" r="28" fill="white" />
                                         </svg>
                                         <div className="absolute inset-0 flex flex-col items-center justify-center">
@@ -831,47 +927,6 @@
                             </div>
                         )}
                         
-                        {activeTab === 'assets' && (
-                            <div className="animate-in space-y-4">
-                                <div className="flex justify-between items-center mb-4">
-                                    <div>
-                                        <p className="text-sm text-stone-500 font-bold">總資產 (TWD)</p>
-                                        <h2 className="text-3xl font-black text-stone-800 tabular-nums">${stats.totalAsset.toLocaleString()}</h2>
-                                    </div>
-                                    <button onClick={()=>{setEditTarget(null); setAccForm({name:'', type:'cash', currency:'TWD', initialBalance:'', includeInTotal: true}); setModal('acc')}}><Icon name="plus-circle" className="text-rose-500" size={32}/></button>
-                                </div>
-                                <div className="grid gap-3">{accounts.map((acc, index) => (
-                                    <div key={acc.id} onClick={() => { setViewingAccount(acc); setAccountDetailMonth(currentLedgerMonth); }} className="bg-white p-4 rounded-xl shadow-sm border border-stone-200 relative cursor-pointer hover:shadow-md transition-shadow" draggable onDragStart={() => (dragItem.current = index)} onDragEnter={() => (dragOverItem.current = index)} onDragEnd={handleSort} onDragOver={(e) => e.preventDefault()}>
-                                            <div className="absolute top-3 right-3 flex gap-2" onClick={e => e.stopPropagation()}>
-                                                <button onClick={()=>{setEditTarget(acc); openAccModalCorrect(acc);}} className="text-stone-400 hover:text-rose-500"><Icon name="edit-2" size={14}/></button>
-                                            </div>
-                                            <div className="flex gap-3 items-center mb-2">
-                                                <div className={`p-2 rounded-lg ${ACCOUNT_TYPES[acc.type]?.color || 'bg-stone-100 text-stone-600'}`}><Icon name={ACCOUNT_TYPES[acc.type]?.iconName || 'wallet'} size={18}/></div>
-                                                <div><h3 className="font-bold text-stone-700">{acc.name}</h3></div>
-                                            </div>
-                                            <p className="text-2xl font-black tabular-nums text-stone-800 ml-7">${(acc.marketValue || stats.bals[acc.id]||0).toLocaleString()} <span className="text-xs text-stone-400 font-normal">{acc.currency}</span></p>
-                                            {acc.type === 'invest' && (<div className="mt-2 pt-2 border-t border-stone-100 flex justify-between items-center text-xs ml-7" onClick={e => e.stopPropagation()}><span className="text-stone-500">成本: ${(stats.bals[acc.id]||0).toLocaleString()}</span><button onClick={()=>{setEditTarget(acc); setNewMarketValue(acc.marketValue||''); setModal('market')}} className="text-rose-500 font-bold bg-rose-50 px-2 py-1 rounded">調整市值</button></div>)}
-                                    </div>
-                                ))}</div>
-                            </div>
-                        )}
-
-                        {activeTab === 'settings' && (
-                            <div className="animate-in space-y-4">
-                                <h2 className="text-xl font-bold text-stone-800">設定</h2>
-                                <button onClick={()=>setModal('budget')} className="w-full bg-white p-4 rounded-xl shadow-sm border border-stone-200 text-left font-bold flex justify-between items-center text-stone-700"><div>月預算設定 <span className="text-xs text-stone-400 font-normal block">目前: ${monthlyBudget.toLocaleString()}</span></div><Icon name="chevron-right" className="text-stone-300"/></button>
-                                <button onClick={()=>{setRetireForm(retirement); setModal('retire')}} className="w-full bg-white p-4 rounded-xl shadow-sm border border-stone-200 text-left font-bold flex justify-between items-center text-stone-700"><div>退休計畫 <span className="text-xs text-stone-400 font-normal block">{retirement.retireAge}歲退休 / 月花費${retirement.monthlyExpense}</span></div><Icon name="chevron-right" className="text-stone-300"/></button>
-                                <button onClick={()=>setModal('cat')} className="w-full bg-white p-4 rounded-xl shadow-sm border border-stone-200 text-left font-bold flex justify-between items-center text-stone-700">類別管理 <Icon name="chevron-right" className="text-stone-300"/></button>
-                                <button onClick={()=>setModal('rate')} className="w-full bg-white p-4 rounded-xl shadow-sm border border-stone-200 text-left font-bold flex justify-between items-center text-stone-700">匯率設定 <Icon name="chevron-right" className="text-stone-300"/></button>
-                                <div className="grid grid-cols-2 gap-3 mt-4">
-                                    <button onClick={handleExport} className="bg-emerald-50 text-emerald-600 p-4 rounded-xl font-bold text-center border border-emerald-100 flex items-center justify-center gap-2"><Icon name="download" size={18}/> 匯出 Excel</button>
-                                    <button onClick={handleImportClick} className="bg-blue-50 text-blue-600 p-4 rounded-xl font-bold text-center border border-blue-100 flex items-center justify-center gap-2"><Icon name="upload" size={18}/> 匯入 Excel</button>
-                                    <input type="file" ref={fileInputRef} onChange={handleImportFile} className="hidden" accept=".xlsx, .xls, .csv" />
-                                </div>
-                                <button onClick={()=>{localStorage.removeItem('my_ledger_firebase_config');window.location.reload()}} className="w-full bg-red-50 text-red-600 p-4 rounded-xl font-bold mt-8 text-center border border-red-100">重設 App 連線</button>
-                            </div>
-                        )}
-                        
                         {activeTab === 'debts' && (
                             <div className="animate-in space-y-4">
                                 <h2 className="text-xl font-bold px-1 text-stone-800">代墊與待收</h2>
@@ -910,85 +965,94 @@
 
                     {/* --- Modals (All z-[200] to ensure top) --- */}
                     
-                    {/* TX Modal */}
+                    {/* TX Modal (Updated with Transfer Button) */}
                     {modal === 'tx' && (
                         <div className="fixed inset-0 z-[200] bg-black/50 flex items-end sm:items-center justify-center p-4">
                             <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl p-6 animate-in slide-in-from-bottom max-h-[90vh] overflow-y-auto">
                                 <h3 className="font-bold text-xl mb-4 text-stone-800">記一筆</h3>
                                 {/* 🔴 修改：step="0.01" 支援小數點 */}
                                 <input type="number" step="0.01" className="w-full text-4xl font-black mb-4 outline-none tabular-nums text-stone-800 placeholder-stone-300" placeholder="0.00" value={txForm.amount} onChange={e=>setTxForm({...txForm, amount:e.target.value})} autoFocus />
-                                <div className="grid grid-cols-2 gap-2 mb-4">
-                                    <button onClick={()=>{setTxForm({...txForm, type:'expense', category: categories['expense'][0].name});}} className={`p-3 rounded-lg font-bold ${txForm.type==='expense'?'bg-rose-100 text-rose-600':'bg-stone-100 text-stone-500'}`}>支出</button>
-                                    <button onClick={()=>{setTxForm({...txForm, type:'income', category: categories['income'][0].name});}} className={`p-3 rounded-lg font-bold ${txForm.type==='income'?'bg-emerald-100 text-emerald-600':'bg-stone-100 text-stone-500'}`}>收入</button>
+                                
+                                {/* 🟢 新增：三個按鈕 (支出 / 收入 / 轉帳) */}
+                                <div className="grid grid-cols-3 gap-2 mb-4">
+                                    <button onClick={()=>{setTxForm({...txForm, type:'expense', category: categories['expense'][0].name});}} className={`p-3 rounded-lg font-bold transition-colors ${txForm.type==='expense'?'bg-rose-100 text-rose-600':'bg-stone-100 text-stone-500'}`}>支出</button>
+                                    <button onClick={()=>{setTxForm({...txForm, type:'income', category: categories['income'][0].name});}} className={`p-3 rounded-lg font-bold transition-colors ${txForm.type==='income'?'bg-emerald-100 text-emerald-600':'bg-stone-100 text-stone-500'}`}>收入</button>
+                                    <button onClick={()=>{setTxForm({...txForm, type:'transfer', category: '轉帳'});}} className={`p-3 rounded-lg font-bold transition-colors ${txForm.type==='transfer'?'bg-slate-200 text-slate-700':'bg-stone-100 text-stone-500'}`}>轉帳</button>
                                 </div>
+                                
                                 <div className="space-y-4">
-                                    <div className="flex gap-2">
-                                        <select className="flex-1 bg-stone-50 p-3 rounded-lg font-bold text-stone-700" value={txForm.category} onChange={e=>{
-                                            if(e.target.value === 'ADD_NEW') {
-                                                setEditingCategoryType(txForm.type); 
-                                                setModal('cat');
-                                            } else {
-                                                setTxForm({...txForm, category:e.target.value});
-                                            }
-                                        }}>
-                                            {categories[txForm.type].map(c=><option key={c.name} value={c.name}>{c.name}</option>)}
-                                            <option value="ADD_NEW">➕ 新增類別...</option>
-                                        </select>
-                                        <button 
-                                            onClick={()=>{setEditingCategoryType(txForm.type); setModal('cat');}} 
-                                            className="px-3 bg-stone-100 rounded-lg text-stone-500 hover:bg-stone-200 flex items-center justify-center"
-                                            title="管理類別"
-                                        >
-                                            <Icon name="plus" size={20}/>
-                                        </button>
-                                    </div>
-                                    {/* Sub Categories */}
-                                    {categories[txForm.type].find(c=>c.name===txForm.category)?.subs?.length > 0 && (
-                                        <div className="flex flex-wrap gap-2">
-                                            {categories[txForm.type].find(c=>c.name===txForm.category).subs.map(s=>(
-                                                <button key={s} onClick={()=>setTxForm({...txForm, subCategory:s})} className={`px-3 py-1 rounded-full text-xs font-bold border transition-colors ${txForm.subCategory===s?'bg-stone-800 text-white':'bg-white text-stone-500'}`}>{s}</button>
-                                            ))}
+                                    {/* 🟢 轉帳介面 (隱藏類別，顯示轉出轉入) */}
+                                    {txForm.type === 'transfer' ? (
+                                        <div className="flex items-center gap-2">
+                                            <div className="flex-1">
+                                                <label className="text-xs text-stone-400 font-bold ml-1 mb-1 block">轉出</label>
+                                                <select className="w-full bg-stone-50 p-3 rounded-lg font-bold text-stone-700 border border-transparent focus:border-slate-300 outline-none" value={txForm.accountId} onChange={e=>setTxForm({...txForm, accountId:e.target.value})}>
+                                                    <option value="">選擇帳戶</option>
+                                                    {accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
+                                                </select>
+                                            </div>
+                                            <Icon name="arrow-right" className="text-stone-300 mt-5"/>
+                                            <div className="flex-1">
+                                                <label className="text-xs text-stone-400 font-bold ml-1 mb-1 block">轉入</label>
+                                                <select className="w-full bg-stone-50 p-3 rounded-lg font-bold text-stone-700 border border-transparent focus:border-slate-300 outline-none" value={txForm.toAccountId} onChange={e=>setTxForm({...txForm, toAccountId:e.target.value})}>
+                                                    <option value="">選擇帳戶</option>
+                                                    {accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
+                                                </select>
+                                            </div>
                                         </div>
-                                    )}
-                                    
-                                    {!isOffset ? (
-                                        <select className="w-full bg-stone-50 p-3 rounded-lg font-bold text-stone-700" value={txForm.accountId} onChange={e=>setTxForm({...txForm, accountId:e.target.value})}>
-                                            <option value="">選擇帳戶</option>
-                                            {accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
-                                        </select>
                                     ) : (
-                                        <select className="w-full bg-rose-50 border-rose-200 p-3 rounded-lg font-bold text-rose-700" value={offsetTargetId} onChange={e=>setOffsetTargetId(e.target.value)}>
-                                            <option value="">選擇待收對象...</option>
-                                            {Object.values(stats.advanceMap).filter(a => !a.isSettled && a.remaining > 0.1).map(adv => (
-                                                <option key={adv.id} value={adv.id}>{adv.debtor} (剩餘 ${adv.remaining})</option>
-                                            ))}
-                                        </select>
+                                        // 一般收支介面
+                                        <>
+                                            <div className="flex gap-2">
+                                                <select className="flex-1 bg-stone-50 p-3 rounded-lg font-bold text-stone-700" value={txForm.category} onChange={e=>{
+                                                    if(e.target.value === 'ADD_NEW') { setEditingCategoryType(txForm.type); setModal('cat'); } 
+                                                    else { setTxForm({...txForm, category:e.target.value}); }
+                                                }}>
+                                                    {categories[txForm.type].map(c=><option key={c.name} value={c.name}>{c.name}</option>)}
+                                                    <option value="ADD_NEW">➕ 新增類別...</option>
+                                                </select>
+                                                <button onClick={()=>{setEditingCategoryType(txForm.type); setModal('cat');}} className="px-3 bg-stone-100 rounded-lg text-stone-500 hover:bg-stone-200 flex items-center justify-center" title="管理類別"><Icon name="plus" size={20}/></button>
+                                            </div>
+                                            {/* Sub Categories */}
+                                            {categories[txForm.type].find(c=>c.name===txForm.category)?.subs?.length > 0 && (
+                                                <div className="flex flex-wrap gap-2">
+                                                    {categories[txForm.type].find(c=>c.name===txForm.category).subs.map(s=>(
+                                                        <button key={s} onClick={()=>setTxForm({...txForm, subCategory:s})} className={`px-3 py-1 rounded-full text-xs font-bold border transition-colors ${txForm.subCategory===s?'bg-stone-800 text-white':'bg-white text-stone-500'}`}>{s}</button>
+                                                    ))}
+                                                </div>
+                                            )}
+                                            
+                                            {/* 帳戶選擇 (或抵扣對象) */}
+                                            {!isOffset ? (
+                                                <select className="w-full bg-stone-50 p-3 rounded-lg font-bold text-stone-700" value={txForm.accountId} onChange={e=>setTxForm({...txForm, accountId:e.target.value})}>
+                                                    <option value="">選擇帳戶</option>
+                                                    {accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
+                                                </select>
+                                            ) : (
+                                                <select className="w-full bg-rose-50 border-rose-200 p-3 rounded-lg font-bold text-rose-700" value={offsetTargetId} onChange={e=>setOffsetTargetId(e.target.value)}>
+                                                    <option value="">選擇待收對象...</option>
+                                                    {Object.values(stats.advanceMap).filter(a => !a.isSettled && a.remaining > 0.1).map(adv => (
+                                                        <option key={adv.id} value={adv.id}>{adv.debtor} (剩餘 ${adv.remaining})</option>
+                                                    ))}
+                                                </select>
+                                            )}
+                                        </>
                                     )}
 
                                     <div className="flex items-center gap-2">
                                         <input type="date" className="bg-stone-50 p-3 rounded-lg flex-1 font-bold text-stone-700" value={txForm.date} onChange={e=>setTxForm({...txForm, date:e.target.value})} />
-                                        
-                                        {/* 備註欄位與麥克風 */}
                                         <div className="flex-[2] flex gap-1">
                                             <input className="bg-stone-50 p-3 rounded-lg w-full font-bold text-stone-700" placeholder="備註" value={txForm.note} onChange={e=>setTxForm({...txForm, note:e.target.value})} />
-                                            <button onClick={handleVoiceInput} className="bg-stone-100 p-3 rounded-lg text-stone-500 hover:text-rose-500 hover:bg-rose-50 transition-colors">
-                                                <Icon name="mic" size={20} />
-                                            </button>
+                                            <button onClick={handleVoiceInput} className="bg-stone-100 p-3 rounded-lg text-stone-500 hover:text-rose-500 hover:bg-rose-50 transition-colors"><Icon name="mic" size={20} /></button>
                                         </div>
                                     </div>
                                     
-                                    {/* Advanced Options */}
+                                    {/* Advanced Options (僅支出顯示) */}
                                     {txForm.type === 'expense' && (
                                         <div className="space-y-2 pt-2 border-t border-stone-100">
                                             <label className="flex items-center justify-between p-2">
                                                 <span className="text-sm font-bold text-stone-500">使用待收抵扣 (互抵)</span>
-                                                <input type="checkbox" checked={isOffset} onChange={e=>{
-                                                    setIsOffset(e.target.checked);
-                                                    if(e.target.checked) {
-                                                        setIsAdvanceSplit(false); 
-                                                        setInstallment({...installment, enabled: false});
-                                                    }
-                                                }} />
+                                                <input type="checkbox" checked={isOffset} onChange={e=>{ setIsOffset(e.target.checked); if(e.target.checked) { setIsAdvanceSplit(false); setInstallment({...installment, enabled: false}); } }} />
                                             </label>
 
                                             {!isOffset && (
@@ -1261,4 +1325,3 @@
     </script>
 </body>
 </html>
-
