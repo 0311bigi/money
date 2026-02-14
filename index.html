@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>雲端帳本 Pro (大字版)</title>
+    <title>雲端帳本 Pro (V16.1)</title>
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="雲端帳本">
@@ -44,7 +44,7 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap');
         
-        /* 🔴 關鍵修改：設定根字體大小為 19px (原為16px)，這會讓所有以 rem 為單位的尺寸放大約 20% */
+        /* 根字體大小設定 */
         html { font-size: 19px; }
         
         body { font-family: 'Inter', 'Noto Sans TC', sans-serif; -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
@@ -65,7 +65,7 @@
 
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
-        const Icon = ({ name, size = 24, className = "" }) => { // 稍微放大預設 Icon
+        const Icon = ({ name, size = 24, className = "" }) => {
             const ref = useRef(null);
             useEffect(() => { if (window.lucide && ref.current) { const i = document.createElement('i'); i.setAttribute('data-lucide', name); ref.current.innerHTML = ''; ref.current.appendChild(i); window.lucide.createIcons({ root: ref.current, attrs: { width: String(size), height: String(size), class: className } }); } }, [name, size, className]);
             return <span ref={ref} style={{ display: 'inline-flex', verticalAlign: 'middle' }}></span>;
@@ -469,7 +469,6 @@
                 setModal(null);
             };
             
-            // 🟢 邏輯修正 1：新增子類別 (即時更新畫面 State，不立即上傳)
             const handleAddSubCategory = (mainCat, sub) => {
                 if (!sub) return;
                 const newCats = { ...categories };
@@ -485,7 +484,6 @@
                 }
             };
 
-            // 🟢 邏輯修正 2：刪除子類別 (即時更新畫面)
             const handleDeleteSubCategory = (mainCat, sub) => {
                 const newCats = { ...categories };
                 const catIndex = newCats[editingCategoryType].findIndex(c => c.name === mainCat);
@@ -498,13 +496,11 @@
                 }
             };
 
-            // 🟢 邏輯修正 3：儲存變更
             const handleSaveCategoryChanges = async () => {
                 await saveData('settings', { categories: categories }, 'config');
                 setModal(null); 
             };
 
-            // 🎤 智慧語音輸入
             const handleVoiceInput = () => {
                 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
                 if (!SpeechRecognition) {
@@ -548,7 +544,20 @@
                 recognition.onerror = (event) => { console.error("語音辨識錯誤", event.error); };
             };
 
-            const handleAccSubmit = async (e) => { e.preventDefault(); if (!accForm.name) return; const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid); const accountData = { ...accForm, order: editingAccount ? editingAccount.order : accounts.length }; if (editingAccount) { await fbRef.current.updateDoc(fbRef.current.doc(userRef, 'accounts', editingAccount.id), accountData); } else { await fbRef.current.addDoc(fbRef.current.collection(userRef, 'accounts'), { ...accountData, createdAt: new Date().toISOString() }); } setModal(null); };
+            // 🟢 修正：將 editingAccount 改回 editTarget
+            const handleAccSubmit = async (e) => { 
+                e.preventDefault(); 
+                if (!accForm.name) return; 
+                const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid); 
+                const accountData = { ...accForm, order: editTarget ? editTarget.order : accounts.length }; 
+                if (editTarget) { 
+                    await fbRef.current.updateDoc(fbRef.current.doc(userRef, 'accounts', editTarget.id), accountData); 
+                } else { 
+                    await fbRef.current.addDoc(fbRef.current.collection(userRef, 'accounts'), { ...accountData, createdAt: new Date().toISOString() }); 
+                } 
+                setModal(null); 
+            };
+
             const handleSort = async () => { if (dragItem.current === null || dragOverItem.current === null) return; const _accounts = [...accounts]; const draggedItemContent = _accounts[dragItem.current]; _accounts.splice(dragItem.current, 1); _accounts.splice(dragOverItem.current, 0, draggedItemContent); dragItem.current = null; dragOverItem.current = null; setAccounts(_accounts); const batch = fbRef.current.writeBatch(dbRef.current); const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid); _accounts.forEach((acc, index) => { const ref = fbRef.current.doc(userRef, 'accounts', acc.id); batch.update(ref, { order: index }); }); await batch.commit(); };
             const handleUpdateMarketValue = async () => { if (!editTarget) return; const accRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid, 'accounts', editTarget.id); await fbRef.current.updateDoc(accRef, { marketValue: parseFloat(newMarketValue) || 0 }); setModal(null); };
             const handleBudgetSubmit = (val) => { setMonthlyBudget(val); saveData('settings', { budget: parseFloat(val) }, 'config'); };
@@ -565,7 +574,9 @@
             const changeDetailMonthStep = (step) => { const [y, m] = accountDetailMonth.split('-').map(Number); const date = new Date(y, m - 1 + step, 1); setAccountDetailMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`); };
             const handleEditMainCategoryName = async (newName) => { if (!newName || !editingCategory) return; const newCats = { ...categories }; const catIdx = newCats[editingCategoryType].findIndex(c => c.name === editingCategory.name); if (catIdx > -1) { newCats[editingCategoryType][catIdx].name = newName; setCategories(newCats); setEditingCategory(newCats[editingCategoryType][catIdx]); } };
             const handleEditMainCategoryIcon = async (newIcon) => { if (!editingCategory) return; const newCats = { ...categories }; const catIdx = newCats[editingCategoryType].findIndex(c => c.name === editingCategory.name); if (catIdx > -1) { newCats[editingCategoryType][catIdx].icon = newIcon; setCategories(newCats); setEditingCategory(newCats[editingCategoryType][catIdx]); } };
-            const openAccModalCorrect = (acc = null) => { if (acc) { setEditingAccount(acc); setAccForm({ name: acc.name, type: acc.type, currency: acc.currency || 'TWD', initialBalance: acc.initialBalance || '', includeInTotal: acc.includeInTotal !== false, closingDay: acc.closingDay || '27', paymentDueDay: acc.paymentDueDay || '15', autoPaymentAccount: acc.autoPaymentAccount || '', holidayAdjustment: acc.holidayAdjustment || 'defer', autoPayment: acc.autoPayment || false }); } else { setEditingAccount(null); setAccForm({ name: '', type: 'cash', currency: 'TWD', initialBalance: '', includeInTotal: true, closingDay: '27', paymentDueDay: '15', autoPaymentAccount: '', holidayAdjustment: 'defer', autoPayment: false }); } setModal('acc'); };
+            
+            // 🟢 修正：將 setEditingAccount 改回 setEditTarget
+            const openAccModalCorrect = (acc = null) => { if (acc) { setEditTarget(acc); setAccForm({ name: acc.name, type: acc.type, currency: acc.currency || 'TWD', initialBalance: acc.initialBalance || '', includeInTotal: acc.includeInTotal !== false, closingDay: acc.closingDay || '27', paymentDueDay: acc.paymentDueDay || '15', autoPaymentAccount: acc.autoPaymentAccount || '', holidayAdjustment: acc.holidayAdjustment || 'defer', autoPayment: acc.autoPayment || false }); } else { setEditTarget(null); setAccForm({ name: '', type: 'cash', currency: 'TWD', initialBalance: '', includeInTotal: true, closingDay: '27', paymentDueDay: '15', autoPaymentAccount: '', holidayAdjustment: 'defer', autoPayment: false }); } setModal('acc'); };
 
             // --- Export to Excel ---
             const handleExport = () => {
@@ -647,13 +658,11 @@
                         let importCount = 0;
                         
                         jsonData.forEach(row => {
-                            // ✅ 替換為這段乾淨的邏輯
                             let rawDate = row['日期'];
                             let date = '';
 
                             if (!rawDate) return; 
 
-                            // 情境 A：Excel 把日期當成純數字序號 (例如 45334)
                             if (typeof rawDate === 'number') {
                                 const excelDate = new Date(Math.round((rawDate - 25569) * 86400 * 1000));
                                 const year = excelDate.getFullYear();
@@ -661,19 +670,18 @@
                                 const day = String(excelDate.getDate()).padStart(2, '0');
                                 date = `${year}-${month}-${day}`;
                             } 
-                            // 情境 B：Excel 給的是文字 (例如 "2026/2/11 18:19" 或 "2026-02-11")
                             else {
                                 try {
                                     let d = new Date(rawDate);
                                     if (isNaN(d.getTime())) {
-                                        d = new Date(); // 看不懂的格式就當作今天
+                                        d = new Date();
                                     }
                                     const year = d.getFullYear();
                                     const month = String(d.getMonth() + 1).padStart(2, '0'); 
                                     const day = String(d.getDate()).padStart(2, '0');
                                     date = `${year}-${month}-${day}`;
                                 } catch (e) {
-                                    return; // 嚴重錯誤就跳過這筆
+                                    return;
                                 }
                             }
 
@@ -683,7 +691,7 @@
                             const note = row['備註'] || '';
                             const accName = row['帳戶'];
                             
-                            if (!date || isNaN(amount)) return; // Skip invalid rows
+                            if (!date || isNaN(amount)) return;
 
                             let type = 'expense';
                             if (row['類型'] === '收入') type = 'income';
