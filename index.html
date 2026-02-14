@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>雲端帳本 Pro (V17.5)</title>
+    <title>雲端帳本 Pro (V17.7)</title>
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="雲端帳本">
@@ -593,74 +593,120 @@
             const openTxModal = (type = 'expense', existingTx = null) => {
                  if (existingTx) { setEditingTx(existingTx); setTxForm({ ...existingTx, accountId: existingTx.accountId || (accounts.length > 0 ? accounts[0].id : ''), }); setIsAdvanceSplit(false); setIsOffset(false); setInstallment({ enabled: false, periods: 3 }); } else { setEditingTx(null); setTxForm({ ...txForm, type, category: categories[type] && categories[type].length > 0 ? categories[type][0].name : '', accountId: accounts.length > 0 ? accounts[0].id : '', amount: '', note: '', date: getLocalToday() }); setIsAdvanceSplit(false); setIsOffset(false); setSplitData({ advances:[{debtor:'',amount:''}], principalAmount:'', sourceAccountId:'' }); } setModal('tx');
             };
-            
-            const changeMonthStep = (step) => { 
-                const [y, m] = currentLedgerMonth.split('-').map(Number);
-                if (analysisMode === 'month') {
-                    const date = new Date(y, m - 1 + step, 1);
-                    setCurrentLedgerMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
-                } else {
-                    const newYear = y + step;
-                    setCurrentLedgerMonth(`${newYear}-${String(m).padStart(2,'0')}`); 
-                }
-            };
-            
+            const changeMonthStep = (step) => { const [y, m] = currentLedgerMonth.split('-').map(Number); const date = new Date(y, m - 1 + step, 1); setCurrentLedgerMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`); };
             const changeDetailMonthStep = (step) => { const [y, m] = accountDetailMonth.split('-').map(Number); const date = new Date(y, m - 1 + step, 1); setAccountDetailMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`); };
             const handleEditMainCategoryName = async (newName) => { if (!newName || !editingCategory) return; const newCats = { ...categories }; const catIdx = newCats[editingCategoryType].findIndex(c => c.name === editingCategory.name); if (catIdx > -1) { newCats[editingCategoryType][catIdx].name = newName; setCategories(newCats); setEditingCategory(newCats[editingCategoryType][catIdx]); } };
             const handleEditMainCategoryIcon = async (newIcon) => { if (!editingCategory) return; const newCats = { ...categories }; const catIdx = newCats[editingCategoryType].findIndex(c => c.name === editingCategory.name); if (catIdx > -1) { newCats[editingCategoryType][catIdx].icon = newIcon; setCategories(newCats); setEditingCategory(newCats[editingCategoryType][catIdx]); } };
             
             const openAccModalCorrect = (acc = null) => { if (acc) { setEditTarget(acc); setAccForm({ name: acc.name, type: acc.type, currency: acc.currency || 'TWD', initialBalance: acc.initialBalance || '', includeInTotal: acc.includeInTotal !== false, closingDay: acc.closingDay || '27', paymentDueDay: acc.paymentDueDay || '15', autoPaymentAccount: acc.autoPaymentAccount || '', holidayAdjustment: acc.holidayAdjustment || 'defer', autoPayment: acc.autoPayment || false }); } else { setEditTarget(null); setAccForm({ name: '', type: 'cash', currency: 'TWD', initialBalance: '', includeInTotal: true, closingDay: '27', paymentDueDay: '15', autoPaymentAccount: '', holidayAdjustment: 'defer', autoPayment: false }); } setModal('acc'); };
 
+            // --- Export to Excel ---
             const handleExport = () => {
                 if (!window.XLSX) { alert("Excel 元件載入中，請稍後再試"); return; }
                 const wb = XLSX.utils.book_new();
+                
+                // Prepare Transaction Data
                 const txData = transactions.map(t => {
                     const accName = accounts.find(a => a.id === t.accountId)?.name || '未知帳戶';
                     const toAccName = t.toAccountId ? (accounts.find(a => a.id === t.toAccountId)?.name || '未知帳戶') : '';
                     let typeLabel = t.type;
-                    if (t.type === 'expense') typeLabel = '支出'; else if (t.type === 'income') typeLabel = '收入'; else if (t.type === 'transfer') typeLabel = '轉帳'; else if (t.type === 'advance') typeLabel = '代墊'; else if (t.type === 'repayment') typeLabel = '還款';
-                    return { 日期: t.date, 類型: typeLabel, 金額: t.amount, 主類別: t.category, 子類別: t.subCategory || '', 帳戶: accName, 轉入帳戶: toAccName, 備註: t.note || '', 代墊對象: t.debtor || '', 建立時間: t.createdAt };
+                    if (t.type === 'expense') typeLabel = '支出';
+                    else if (t.type === 'income') typeLabel = '收入';
+                    else if (t.type === 'transfer') typeLabel = '轉帳';
+                    else if (t.type === 'advance') typeLabel = '代墊';
+                    else if (t.type === 'repayment') typeLabel = '還款';
+
+                    return {
+                        日期: t.date,
+                        類型: typeLabel,
+                        金額: t.amount,
+                        主類別: t.category,
+                        子類別: t.subCategory || '',
+                        帳戶: accName,
+                        轉入帳戶: toAccName,
+                        備註: t.note || '',
+                        代墊對象: t.debtor || '',
+                        建立時間: t.createdAt
+                    };
                 });
+                
                 const wsTx = XLSX.utils.json_to_sheet(txData);
                 XLSX.utils.book_append_sheet(wb, wsTx, "交易紀錄");
-                const accData = accounts.map(a => ({ 名稱: a.name, 類型: ACCOUNT_TYPES[a.type]?.label || a.type, 幣別: a.currency, 初始餘額: a.initialBalance, 計入總資產: a.includeInTotal ? '是' : '否' }));
-                const wsAcc = XLSX.utils.json_to_sheet(accData);
+                
+                // Prepare Account Data (Optional but good for backup)
+                const accData = accounts.map(a => ({
+                    名稱: a.name,
+                    類型: ACCOUNT_TYPES[a.type]?.label || a.type,
+                    幣別: a.currency,
+                    初始餘額: a.initialBalance,
+                    計入總資產: a.includeInTotal ? '是' : '否'
+                }));
+                 const wsAcc = XLSX.utils.json_to_sheet(accData);
                 XLSX.utils.book_append_sheet(wb, wsAcc, "帳戶設定");
+
                 XLSX.writeFile(wb, `記帳備份_${new Date().toISOString().slice(0,10)}.xlsx`);
             };
 
-            const handleImportClick = () => { if (fileInputRef.current) fileInputRef.current.click(); };
+            // --- Import from Excel ---
+            const handleImportClick = () => {
+                if (fileInputRef.current) fileInputRef.current.click();
+            };
+
             const handleImportFile = async (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
                 setIsImporting(true);
+                
                 const reader = new FileReader();
                 reader.onload = async (evt) => {
                     try {
                         const bstr = evt.target.result;
                         const wb = XLSX.read(bstr, { type: 'binary' });
+                        
                         const wsName = wb.SheetNames.includes("交易紀錄") ? "交易紀錄" : wb.SheetNames[0];
                         const ws = wb.Sheets[wsName];
                         const jsonData = XLSX.utils.sheet_to_json(ws, { raw: false });
-                        if (!jsonData || jsonData.length === 0) { alert("檔案內容為空或格式不符"); setIsImporting(false); return; }
+                        
+                        if (!jsonData || jsonData.length === 0) {
+                            alert("檔案內容為空或格式不符");
+                            setIsImporting(false);
+                            return;
+                        }
+
                         const batch = fbRef.current.writeBatch(dbRef.current);
                         const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
                         const txCol = fbRef.current.collection(userRef, 'transactions');
+                        
                         let importCount = 0;
+                        
                         jsonData.forEach(row => {
                             let rawDate = row['日期'];
                             let date = '';
+
                             if (!rawDate) return; 
+
                             if (typeof rawDate === 'number') {
                                 const excelDate = new Date(Math.round((rawDate - 25569) * 86400 * 1000));
-                                date = excelDate.toISOString().split('T')[0];
-                            } else {
+                                const year = excelDate.getFullYear();
+                                const month = String(excelDate.getMonth() + 1).padStart(2, '0');
+                                const day = String(excelDate.getDate()).padStart(2, '0');
+                                date = `${year}-${month}-${day}`;
+                            } 
+                            else {
                                 try {
                                     let d = new Date(rawDate);
-                                    if (isNaN(d.getTime())) d = new Date();
-                                    date = d.toISOString().split('T')[0];
-                                } catch (e) { return; }
+                                    if (isNaN(d.getTime())) {
+                                        d = new Date();
+                                    }
+                                    const year = d.getFullYear();
+                                    const month = String(d.getMonth() + 1).padStart(2, '0'); 
+                                    const day = String(d.getDate()).padStart(2, '0');
+                                    date = `${year}-${month}-${day}`;
+                                } catch (e) {
+                                    return;
+                                }
                             }
+
                             const amount = parseFloat(row['金額']);
                             const category = row['主類別'] || '未分類';
                             const subCategory = row['子類別'] || '';
@@ -698,10 +744,60 @@
 
                         await batch.commit();
                         alert(`成功匯入 ${importCount} 筆交易！`);
-                    } catch (err) { console.error("Import failed", err); alert("匯入失敗，請確認檔案格式是否正確。"); } finally { setIsImporting(false); if (fileInputRef.current) fileInputRef.current.value = ''; }
+                    } catch (err) {
+                        console.error("Import failed", err);
+                        alert("匯入失敗，請確認檔案格式是否正確。");
+                    } finally {
+                        setIsImporting(false);
+                        if (fileInputRef.current) fileInputRef.current.value = '';
+                    }
                 };
                 reader.readAsBinaryString(file);
             };
+
+
+            if (needConfig) return <div className="min-h-screen bg-stone-50 flex items-center justify-center p-6"><div className="bg-white max-w-md w-full p-8 rounded-3xl shadow-xl"><div className="flex justify-center mb-6 text-stone-800"><Icon name="settings" size={48}/></div><h2 className="text-xl font-bold text-center mb-4">輸入 Firebase 設定</h2><textarea className="w-full h-48 p-4 bg-stone-50 rounded-xl text-xs font-mono mb-4 border" placeholder='{ "apiKey": "..." }' value={configInput} onChange={e=>setConfigInput(e.target.value)}/><button onClick={handleSaveConfig} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold">儲存</button></div></div>;
+            if (!sdkReady || loading) return <div className="h-screen flex items-center justify-center bg-stone-50"><Icon name="loader-2" className="animate-spin text-stone-500" size={40}/></div>;
+
+            if (viewingAccount) {
+                return (
+                     <div className="min-h-screen pb-24 max-w-xl mx-auto bg-stone-50 relative">
+                        <header className="sticky top-0 z-20 bg-stone-900 text-white px-4 py-4 flex justify-between items-center shadow-lg">
+                            <button onClick={()=>setViewingAccount(null)} className="p-2 bg-white/10 rounded-lg"><Icon name="arrow-left"/></button>
+                            <h1 className="font-bold text-lg">{viewingAccount.name} <span className="text-xs opacity-50">{viewingAccount.currency}</span></h1>
+                            <div className="w-10"></div>
+                        </header>
+                        <div className="p-4 space-y-4">
+                            <div className="flex items-center justify-between bg-white rounded-xl p-2 shadow-sm border border-stone-200">
+                                <button onClick={()=>changeDetailMonthStep(-1)} className="p-2 hover:bg-stone-50 rounded-lg text-stone-400"><Icon name="chevron-left"/></button>
+                                <div className="text-center font-bold text-stone-800 text-lg">{accountDetailMonth.replace('-','年 ')}月</div>
+                                <button onClick={()=>changeDetailMonthStep(1)} className="p-2 hover:bg-stone-50 rounded-lg text-stone-400"><Icon name="chevron-right"/></button>
+                            </div>
+                            <div className="bg-stone-900 rounded-xl p-6 text-white shadow-lg">
+                                <div className="flex justify-between items-end mb-4"><div><p className="text-xs text-stone-400 mb-1">當前餘額</p><h2 className="text-3xl font-black tabular-nums">${(accountDetailData?.currentBalance||0).toLocaleString()}</h2></div></div>
+                                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                                    <div className="bg-white/10 p-2 rounded"><p className="text-stone-400 mb-1">收入</p><p className="font-bold text-emerald-400">+${accountDetailData?.stats.mIncome.toLocaleString()}</p></div>
+                                    <div className="bg-white/10 p-2 rounded"><p className="text-stone-400 mb-1">支出</p><p className="font-bold text-rose-400">-${accountDetailData?.stats.mExpense.toLocaleString()}</p></div>
+                                    <div className="bg-white/10 p-2 rounded"><p className="text-stone-400 mb-1">轉帳</p><p className={`font-bold ${accountDetailData?.stats.mTrans >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{accountDetailData?.stats.mTrans > 0 ? '+' : ''}{accountDetailData?.stats.mTrans.toLocaleString()}</p></div>
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <h3 className="text-xs font-bold text-stone-400 uppercase ml-1">交易明細 (含餘額)</h3>
+                                {accountDetailData?.displayList.length === 0 ? <div className="text-center py-10 text-stone-400 text-sm">本月無交易</div> : 
+                                    accountDetailData?.displayList.map(tx => (
+                                    <div key={tx.id} className="bg-white p-3 rounded-xl shadow-sm border border-stone-100 flex justify-between items-center">
+                                            <div className="flex items-center gap-3">
+                                                 <div className={`p-2 rounded-lg text-white ${tx.displayType==='income'?'bg-emerald-500': tx.displayType==='expense'?'bg-rose-500':'bg-slate-500'}`}><Icon name={getCategoryIcon(tx.category, tx.type)} size={16}/></div>
+                                                 <div><p className="font-bold text-sm text-stone-800">{tx.category} <span className="text-xs font-normal text-stone-400">{tx.date.slice(5)}</span></p><p className="text-xs text-stone-400">{tx.note || '無備註'}</p></div>
+                                            </div>
+                                            <div className="text-right"><p className={`font-bold tabular-nums ${tx.change > 0 ? 'text-emerald-600' : 'text-stone-800'}`}>{tx.change > 0 ? '+' : ''}{tx.change.toLocaleString()}</p><p className="text-xs text-stone-400 font-bold mt-0.5 tabular-nums">餘額: ${tx.balanceSnapshot.toLocaleString()}</p></div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                     </div>
+                );
+            }
 
             return (
                 <div className="min-h-screen pb-24 max-w-xl mx-auto bg-stone-50 relative">
@@ -853,18 +949,15 @@
                                     <div className="relative h-48 w-48 mb-4">
                                         <svg viewBox="0 0 100 100" className="transform -rotate-90 w-full h-full">
                                             {(() => {
-                                                if (analysisData.chart.length === 1 && analysisData.chart[0].value > 0) {
-                                                     return <circle cx="50" cy="50" r="40" fill={analysisData.chart[0].color} />;
-                                                }
+                                                if (analysisData.chart.length === 1 && analysisData.chart[0].value > 0) return <circle cx="50" cy="50" r="40" fill={analysisData.chart[0].color} />;
                                                 let cumulative = 0;
                                                 return analysisData.chart.map((d, i) => {
                                                     const startA = cumulative * Math.PI * 2; cumulative += d.percent / 100; const endA = cumulative * Math.PI * 2;
                                                     const x1 = 50 + 40 * Math.cos(startA), y1 = 50 + 40 * Math.sin(startA), x2 = 50 + 40 * Math.cos(endA), y2 = 50 + 40 * Math.sin(endA);
                                                     const largeArc = d.percent > 50 ? 1 : 0;
-                                                    return <path key={i} d={`M 50 50 L ${x1} ${y1} A 40 40 0 ${largeArc} 1 ${x2} ${y2} Z`} fill={d.color} stroke="#fff" strokeWidth="1" onClick={() => setSelectedCategory(d.name)} style={{cursor: 'pointer'}} />;
+                                                    return <path key={i} d={`M 50 50 L ${x1} ${y1} A 40 40 0 ${largeArc} 1 ${x2} ${y2} Z`} fill={d.color} stroke="#fff" strokeWidth="1" onClick={() => setExpandedCategory(expandedCategory === d.name ? null : d.name)} style={{cursor: 'pointer'}} />;
                                                 });
                                             })()}
-                                            {analysisData.total === 0 && <circle cx="50" cy="50" r="40" fill="#f5f5f4" />}
                                             <circle cx="50" cy="50" r="28" fill="white" />
                                         </svg>
                                         <div className="absolute inset-0 flex flex-col items-center justify-center">
@@ -981,24 +1074,49 @@
                                 </div>
                                 
                                 <div className="space-y-4">
-                                    {/* 🟢 轉帳介面 (隱藏類別，顯示轉出轉入) */}
+                                    {/* 🟢 轉帳介面 (直式排列，解決擁擠問題) */}
                                     {txForm.type === 'transfer' ? (
-                                        <div className="flex items-center gap-2">
-                                            <div className="flex-1">
-                                                <label className="text-xs text-stone-400 font-bold ml-1 mb-1 block">轉出</label>
-                                                <select className="w-full bg-stone-50 p-3 rounded-lg font-bold text-stone-700 border border-transparent focus:border-slate-300 outline-none" value={txForm.accountId} onChange={e=>setTxForm({...txForm, accountId:e.target.value})}>
+                                        <div className="flex flex-col gap-2 bg-stone-50 p-4 rounded-xl border border-stone-100">
+                                            <div className="w-full">
+                                                <label className="text-xs text-stone-500 font-bold ml-1 mb-1 block">從 轉出</label>
+                                                <select className="w-full bg-white p-3 rounded-lg font-bold text-stone-800 border border-stone-200 shadow-sm outline-none focus:border-blue-400" value={txForm.accountId} onChange={e=>setTxForm({...txForm, accountId:e.target.value})}>
                                                     <option value="">選擇帳戶</option>
-                                                    {accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
+                                                    {accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}
                                                 </select>
                                             </div>
-                                            <Icon name="arrow-right" className="text-stone-300 mt-5"/>
-                                            <div className="flex-1">
-                                                <label className="text-xs text-stone-400 font-bold ml-1 mb-1 block">轉入</label>
-                                                <select className="w-full bg-stone-50 p-3 rounded-lg font-bold text-stone-700 border border-transparent focus:border-slate-300 outline-none" value={txForm.toAccountId} onChange={e=>setTxForm({...txForm, toAccountId:e.target.value})}>
+                                            
+                                            <div className="flex justify-center -my-1 z-10 relative">
+                                                <div className="bg-stone-200 rounded-full p-1 border-2 border-white"><Icon name="arrow-down" size={16} className="text-stone-500"/></div>
+                                            </div>
+
+                                            <div className="w-full">
+                                                <label className="text-xs text-stone-500 font-bold ml-1 mb-1 block">轉入 至</label>
+                                                <select className="w-full bg-white p-3 rounded-lg font-bold text-stone-800 border border-stone-200 shadow-sm outline-none focus:border-blue-400" value={txForm.toAccountId} onChange={e=>setTxForm({...txForm, toAccountId:e.target.value})}>
                                                     <option value="">選擇帳戶</option>
-                                                    {accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
+                                                    {accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}
                                                 </select>
                                             </div>
+
+                                            {/* 🟢 跨幣別轉帳：顯示第二個金額輸入框 */}
+                                            {(() => {
+                                                const sourceAcc = accounts.find(a => a.id === txForm.accountId);
+                                                const targetAcc = accounts.find(a => a.id === txForm.toAccountId);
+                                                const isDiffCurrency = sourceAcc && targetAcc && sourceAcc.currency !== targetAcc.currency;
+                                                
+                                                if (isDiffCurrency) {
+                                                    const rate = (parseFloat(txForm.amount) && parseFloat(txForm.toAmount)) ? (parseFloat(txForm.amount) / parseFloat(txForm.toAmount)).toFixed(2) : '-';
+                                                    return (
+                                                        <div className="w-full pt-3 mt-1 border-t border-dashed border-stone-300">
+                                                            <div className="flex justify-between items-center mb-1 px-1">
+                                                                <span className="text-xs font-bold text-blue-600">實際入帳金額 ({targetAcc.currency})</span>
+                                                                <span className="text-[10px] text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded">匯率 ≈ {rate}</span>
+                                                            </div>
+                                                            <input type="number" step="0.01" className="w-full p-3 bg-blue-50 rounded-lg font-bold text-blue-700 border border-blue-200 tabular-nums text-xl outline-none focus:ring-2 focus:ring-blue-200" placeholder="例如: 1000" value={txForm.toAmount || ''} onChange={e=>setTxForm({...txForm, toAmount:e.target.value})} />
+                                                        </div>
+                                                    );
+                                                }
+                                                return null;
+                                            })()}
                                         </div>
                                     ) : (
                                         // 一般收支介面
