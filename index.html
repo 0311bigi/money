@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>雲端帳本 Pro (V18.2)</title>
+    <title>雲端帳本 Pro (V18.3)</title>
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="雲端帳本">
@@ -134,7 +134,6 @@
             const [currentLedgerMonth, setCurrentLedgerMonth] = useState(getLocalMonth());
             const [analysisMode, setAnalysisMode] = useState('month'); 
             const [analysisType, setAnalysisType] = useState('expense');
-            // 🟢 V18.2 確保 analysisGroupBy 被移除
             const [expandedCategory, setExpandedCategory] = useState(null); 
             
             const [modal, setModal] = useState(null); 
@@ -717,6 +716,9 @@
                         
                         let importCount = 0;
                         
+                        // 🟢 V18.3 智慧比對邏輯 (正規化字串：小寫 + 去除所有空白)
+                        const normalize = (str) => String(str || '').replace(/\s+/g, '').toLowerCase();
+
                         jsonData.forEach(row => {
                             let rawDate = row['日期'];
                             let date = '';
@@ -750,8 +752,7 @@
                             const category = row['主類別'] || '未分類';
                             const subCategory = row['子類別'] || '';
                             const note = row['備註'] || '';
-                            // 🟢 修改：確保帳戶名稱是字串並去除空白
-                            const accName = String(row['帳戶'] || '').trim();
+                            const accName = String(row['帳戶'] || '');
                             
                             if (!date || isNaN(amount)) return;
 
@@ -761,13 +762,14 @@
                             else if (row['類型'] === '代墊') type = 'advance';
                             else if (row['類型'] === '還款') type = 'repayment';
                             
-                            // 🟢 修改：比對前先去除雙方的前後空白，增加成功率
-                            const acc = accounts.find(a => a.name.trim() === accName.trim());
+                            // 🟢 V18.3 核心修改：使用 normalize 進行模糊比對
+                            const acc = accounts.find(a => normalize(a.name) === normalize(accName));
                             const accountId = acc ? acc.id : (accounts[0]?.id || ''); 
 
                             let toAccountId = '';
                             if (type === 'transfer' && row['轉入帳戶']) {
-                                const toAcc = accounts.find(a => a.name === row['轉入帳戶']);
+                                const toAccName = String(row['轉入帳戶'] || '');
+                                const toAcc = accounts.find(a => normalize(a.name) === normalize(toAccName));
                                 if (toAcc) toAccountId = toAcc.id;
                             }
 
@@ -798,7 +800,6 @@
             if (needConfig) return <div className="min-h-screen bg-stone-50 flex items-center justify-center p-6"><div className="bg-white max-w-md w-full p-8 rounded-3xl shadow-xl"><div className="flex justify-center mb-6 text-stone-800"><Icon name="settings" size={48}/></div><h2 className="text-xl font-bold text-center mb-4">輸入 Firebase 設定</h2><textarea className="w-full h-48 p-4 bg-stone-50 rounded-xl text-xs font-mono mb-4 border" placeholder='{ "apiKey": "..." }' value={configInput} onChange={e=>setConfigInput(e.target.value)}/><button onClick={handleSaveConfig} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold">儲存</button></div></div>;
             if (!sdkReady || loading) return <div className="h-screen flex items-center justify-center bg-stone-50"><Icon name="loader-2" className="animate-spin text-stone-500" size={40}/></div>;
 
-            // 🟢 V18.0 修復：帳戶明細頁 (對帳) - 確保配色與主畫面一致
             if (viewingAccount) {
                 return (
                      <div className="min-h-screen pb-24 max-w-xl mx-auto bg-stone-50 relative">
@@ -976,11 +977,6 @@
                             <div className="animate-in space-y-4">
                                 <h2 className="text-xl font-bold text-stone-800 px-1">收支分析</h2>
                                 <div className="bg-white rounded-xl p-4 shadow-sm border border-stone-100 space-y-3">
-                                    <div className="flex bg-stone-100 p-1 rounded-lg mb-2">
-                                        <button onClick={()=>setAnalysisMode('month')} className={`flex-1 py-1.5 text-sm font-bold rounded-md transition-colors ${analysisMode==='month'?'bg-white text-stone-800 shadow':'text-stone-500'}`}>月報表</button>
-                                        <button onClick={()=>setAnalysisMode('year')} className={`flex-1 py-1.5 text-sm font-bold rounded-md transition-colors ${analysisMode==='year'?'bg-white text-stone-800 shadow':'text-stone-500'}`}>年報表</button>
-                                    </div>
-
                                     <div className="flex justify-between items-center bg-stone-50 rounded-lg p-1">
                                             <button onClick={()=>changeMonthStep(-1)} className="p-2 text-stone-400"><Icon name="chevron-left"/></button>
                                             <div className="relative">
@@ -992,6 +988,10 @@
                                     <div className="flex bg-stone-100 p-1 rounded-lg">
                                             <button onClick={()=>setAnalysisType('expense')} className={`flex-1 py-2 text-sm font-bold rounded-md ${analysisType==='expense'?'bg-white text-rose-500 shadow':'text-stone-400'}`}>支出</button>
                                             <button onClick={()=>setAnalysisType('income')} className={`flex-1 py-2 text-sm font-bold rounded-md ${analysisType==='income'?'bg-white text-emerald-500 shadow':'text-stone-400'}`}>收入</button>
+                                    </div>
+                                    <div className="flex bg-stone-100 p-1 rounded-lg">
+                                            <button onClick={()=>setAnalysisMode('month')} className={`flex-1 py-2 text-sm font-bold rounded-md ${analysisMode==='month'?'bg-white text-stone-800 shadow':'text-stone-400'}`}>月報表</button>
+                                            <button onClick={()=>setAnalysisMode('year')} className={`flex-1 py-2 text-sm font-bold rounded-md ${analysisMode==='year'?'bg-white text-stone-800 shadow':'text-stone-400'}`}>年報表</button>
                                     </div>
                                 </div>
                                 <div className="bg-white rounded-xl p-6 shadow-sm border border-stone-100 flex flex-col items-center">
