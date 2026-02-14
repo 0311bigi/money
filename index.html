@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>雲端帳本 Pro (V16.1)</title>
+    <title>雲端帳本 Pro (V16.2)</title>
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="雲端帳本">
@@ -544,7 +544,6 @@
                 recognition.onerror = (event) => { console.error("語音辨識錯誤", event.error); };
             };
 
-            // 🟢 修正：將 editingAccount 改回 editTarget
             const handleAccSubmit = async (e) => { 
                 e.preventDefault(); 
                 if (!accForm.name) return; 
@@ -575,7 +574,6 @@
             const handleEditMainCategoryName = async (newName) => { if (!newName || !editingCategory) return; const newCats = { ...categories }; const catIdx = newCats[editingCategoryType].findIndex(c => c.name === editingCategory.name); if (catIdx > -1) { newCats[editingCategoryType][catIdx].name = newName; setCategories(newCats); setEditingCategory(newCats[editingCategoryType][catIdx]); } };
             const handleEditMainCategoryIcon = async (newIcon) => { if (!editingCategory) return; const newCats = { ...categories }; const catIdx = newCats[editingCategoryType].findIndex(c => c.name === editingCategory.name); if (catIdx > -1) { newCats[editingCategoryType][catIdx].icon = newIcon; setCategories(newCats); setEditingCategory(newCats[editingCategoryType][catIdx]); } };
             
-            // 🟢 修正：將 setEditingAccount 改回 setEditTarget
             const openAccModalCorrect = (acc = null) => { if (acc) { setEditTarget(acc); setAccForm({ name: acc.name, type: acc.type, currency: acc.currency || 'TWD', initialBalance: acc.initialBalance || '', includeInTotal: acc.includeInTotal !== false, closingDay: acc.closingDay || '27', paymentDueDay: acc.paymentDueDay || '15', autoPaymentAccount: acc.autoPaymentAccount || '', holidayAdjustment: acc.holidayAdjustment || 'defer', autoPayment: acc.autoPayment || false }); } else { setEditTarget(null); setAccForm({ name: '', type: 'cash', currency: 'TWD', initialBalance: '', includeInTotal: true, closingDay: '27', paymentDueDay: '15', autoPaymentAccount: '', holidayAdjustment: 'defer', autoPayment: false }); } setModal('acc'); };
 
             // --- Export to Excel ---
@@ -989,7 +987,8 @@
                         <div className="fixed inset-0 z-[200] bg-black/50 flex items-end sm:items-center justify-center p-4">
                             <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl p-6 animate-in slide-in-from-bottom max-h-[90vh] overflow-y-auto">
                                 <h3 className="font-bold text-xl mb-4 text-stone-800">記一筆</h3>
-                                <input type="number" className="w-full text-4xl font-black mb-4 outline-none tabular-nums text-stone-800 placeholder-stone-300" placeholder="0" value={txForm.amount} onChange={e=>setTxForm({...txForm, amount:e.target.value})} autoFocus />
+                                {/* 🔴 修改：step="0.01" 支援小數點 */}
+                                <input type="number" step="0.01" className="w-full text-4xl font-black mb-4 outline-none tabular-nums text-stone-800 placeholder-stone-300" placeholder="0.00" value={txForm.amount} onChange={e=>setTxForm({...txForm, amount:e.target.value})} autoFocus />
                                 <div className="grid grid-cols-2 gap-2 mb-4">
                                     <button onClick={()=>{setTxForm({...txForm, type:'expense', category: categories['expense'][0].name});}} className={`p-3 rounded-lg font-bold ${txForm.type==='expense'?'bg-rose-100 text-rose-600':'bg-stone-100 text-stone-500'}`}>支出</button>
                                     <button onClick={()=>{setTxForm({...txForm, type:'income', category: categories['income'][0].name});}} className={`p-3 rounded-lg font-bold ${txForm.type==='income'?'bg-emerald-100 text-emerald-600':'bg-stone-100 text-stone-500'}`}>收入</button>
@@ -1110,7 +1109,8 @@
                                  <h3 className="font-bold text-xl mb-4 text-stone-800">{editTarget ? '編輯帳戶' : '新增帳戶'}</h3>
                                  <input className="w-full p-3 bg-stone-50 rounded-lg mb-4 border border-stone-200" placeholder="名稱" value={accForm.name} onChange={e=>setAccForm({...accForm, name:e.target.value})}/>
                                  <select className="w-full p-3 bg-stone-50 rounded-lg mb-4 border border-stone-200" value={accForm.type} onChange={e=>setAccForm({...accForm, type:e.target.value})}>{Object.entries(ACCOUNT_TYPES).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select>
-                                 <input type="number" className="w-full p-3 bg-stone-50 rounded-lg mb-4 border border-stone-200 tabular-nums" placeholder="初始餘額" value={accForm.initialBalance} onChange={e=>setAccForm({...accForm, initialBalance:e.target.value})}/>
+                                 {/* 🔴 修改：step="0.01" 支援小數點 */}
+                                 <input type="number" step="0.01" className="w-full p-3 bg-stone-50 rounded-lg mb-4 border border-stone-200 tabular-nums" placeholder="初始餘額" value={accForm.initialBalance} onChange={e=>setAccForm({...accForm, initialBalance:e.target.value})}/>
                                  <div className="flex gap-2 mb-4"><span className="p-3 bg-stone-100 rounded text-sm text-stone-500">幣別</span><select className="flex-1 p-3 bg-stone-50 rounded border border-stone-200" value={accForm.currency} onChange={e=>setAccForm({...accForm, currency:e.target.value})}>{CURRENCIES.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
                                  <label className="flex items-center gap-3 p-3 bg-stone-50 rounded-lg mb-6 cursor-pointer border border-stone-200">
                                     <div className={`w-5 h-5 rounded-md flex items-center justify-center border ${accForm.includeInTotal ? 'bg-rose-500 border-rose-500 text-white' : 'bg-white border-stone-300'}`}>{accForm.includeInTotal && <Icon name="check" size={14} />}</div>
@@ -1295,7 +1295,8 @@
                              <div className="bg-white w-full max-w-sm p-6 rounded-2xl">
                                  <h3 className="font-bold text-xl mb-2 text-stone-800">更新市值</h3>
                                  <p className="text-sm text-stone-500 mb-4">{editTarget.name} ({editTarget.currency})</p>
-                                 <input type="number" autoFocus className="w-full p-4 bg-stone-50 rounded-xl text-2xl font-black mb-4 outline-none tabular-nums text-stone-800" value={newMarketValue} onChange={e=>setNewMarketValue(e.target.value)} placeholder="最新市值" />
+                                 {/* 🔴 修改：step="0.01" 支援小數點 */}
+                                 <input type="number" step="0.01" autoFocus className="w-full p-4 bg-stone-50 rounded-xl text-2xl font-black mb-4 outline-none tabular-nums text-stone-800" value={newMarketValue} onChange={e=>setNewMarketValue(e.target.value)} placeholder="最新市值" />
                                  <button onClick={handleUpdateMarketValue} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold shadow-lg">更新</button>
                                  <button onClick={()=>setModal(null)} className="w-full mt-2 text-stone-400">取消</button>
                              </div>
