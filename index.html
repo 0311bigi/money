@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>雲端帳本 Pro (V18.3)</title>
+    <title>雲端帳本 Pro (V18.4)</title>
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="雲端帳本">
@@ -626,9 +626,37 @@
             const updateAdvanceRow = (index, field, value) => { const newAdvances = [...splitData.advances]; newAdvances[index][field] = value; setSplitData({...splitData, advances: newAdvances}); };
             const addAdvanceRow = () => { setSplitData({...splitData, advances: [...splitData.advances, { debtor: '', amount: '' }]}); };
             const removeAdvanceRow = (index) => { if (splitData.advances.length <= 1) return; const newAdvances = splitData.advances.filter((_, i) => i !== index); setSplitData({...splitData, advances: newAdvances}); };
+            
+            // 🟢 V18.4 核心修改：智慧帶入帳戶
             const openTxModal = (type = 'expense', existingTx = null) => {
-                 if (existingTx) { setEditingTx(existingTx); setTxForm({ ...existingTx, accountId: existingTx.accountId || (accounts.length > 0 ? accounts[0].id : ''), }); setIsAdvanceSplit(false); setIsOffset(false); setInstallment({ enabled: false, periods: 3 }); } else { setEditingTx(null); setTxForm({ ...txForm, type, category: categories[type] && categories[type].length > 0 ? categories[type][0].name : '', accountId: accounts.length > 0 ? accounts[0].id : '', amount: '', note: '', date: getLocalToday() }); setIsAdvanceSplit(false); setIsOffset(false); setSplitData({ advances:[{debtor:'',amount:''}], principalAmount:'', sourceAccountId:'' }); } setModal('tx');
+                 if (existingTx) { 
+                    setEditingTx(existingTx); 
+                    setTxForm({ ...existingTx, accountId: existingTx.accountId || (accounts.length > 0 ? accounts[0].id : ''), }); 
+                    setIsAdvanceSplit(false); setIsOffset(false); 
+                    setInstallment({ enabled: false, periods: 3 }); 
+                } else { 
+                    setEditingTx(null); 
+                    
+                    // 🧠 智慧判斷：如果正在看某個帳戶 (viewingAccount)，就預設帶入該帳戶 ID
+                    const defaultAccId = viewingAccount ? viewingAccount.id : (accounts.length > 0 ? accounts[0].id : '');
+                    
+                    setTxForm({ 
+                        ...txForm, 
+                        type, 
+                        category: categories[type] && categories[type].length > 0 ? categories[type][0].name : '', 
+                        accountId: defaultAccId, // 🟢 這裡帶入
+                        amount: '', 
+                        note: '', 
+                        date: getLocalToday() 
+                    }); 
+                    
+                    setIsAdvanceSplit(false); 
+                    setIsOffset(false); 
+                    setSplitData({ advances:[{debtor:'',amount:''}], principalAmount:'', sourceAccountId:'' }); 
+                } 
+                setModal('tx');
             };
+            
             const changeMonthStep = (step) => { const [y, m] = currentLedgerMonth.split('-').map(Number); const date = new Date(y, m - 1 + step, 1); setCurrentLedgerMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`); };
             const changeDetailMonthStep = (step) => { const [y, m] = accountDetailMonth.split('-').map(Number); const date = new Date(y, m - 1 + step, 1); setAccountDetailMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`); };
             const handleEditMainCategoryName = async (newName) => { if (!newName || !editingCategory) return; const newCats = { ...categories }; const catIdx = newCats[editingCategoryType].findIndex(c => c.name === editingCategory.name); if (catIdx > -1) { newCats[editingCategoryType][catIdx].name = newName; setCategories(newCats); setEditingCategory(newCats[editingCategoryType][catIdx]); } };
@@ -716,7 +744,7 @@
                         
                         let importCount = 0;
                         
-                        // 🟢 V18.3 智慧比對邏輯 (正規化字串：小寫 + 去除所有空白)
+                        // 🟢 V18.3 智慧比對邏輯
                         const normalize = (str) => String(str || '').replace(/\s+/g, '').toLowerCase();
 
                         jsonData.forEach(row => {
@@ -762,7 +790,6 @@
                             else if (row['類型'] === '代墊') type = 'advance';
                             else if (row['類型'] === '還款') type = 'repayment';
                             
-                            // 🟢 V18.3 核心修改：使用 normalize 進行模糊比對
                             const acc = accounts.find(a => normalize(a.name) === normalize(accName));
                             const accountId = acc ? acc.id : (accounts[0]?.id || ''); 
 
@@ -835,6 +862,14 @@
                                     </div>
                                 ))}
                             </div>
+                            
+                            {/* 🟢 核心功能：對帳模式專屬的 FAB 按鈕 (右下角) */}
+                            <button
+                                onClick={() => openTxModal('expense')}
+                                className="fixed bottom-8 right-6 bg-rose-500 text-white p-4 rounded-full shadow-xl z-30 transition-transform active:scale-95 border-4 border-stone-50"
+                            >
+                                <Icon name="plus" size={32} />
+                            </button>
                         </div>
                      </div>
                 );
@@ -1188,7 +1223,7 @@
                                             {categories[txForm.type].find(c=>c.name===txForm.category)?.subs?.length > 0 && (
                                                 <div className="flex flex-wrap gap-2">
                                                     {categories[txForm.type].find(c=>c.name===txForm.category).subs.map(s=>(
-                                                        <button key={s} onClick={()=>setTxForm({...txForm, subCategory:s})} className={`px-3 py-1 rounded-full text-xs font-bold border transition-colors ${txForm.subCategory===s?'bg-stone-800 text-white':'bg-stone-100 text-stone-500'}`}>{s}</button>
+                                                        <button key={s} onClick={()=>setTxForm({...txForm, subCategory:s})} className={`px-3 py-1 rounded-full text-xs font-bold border transition-colors ${txForm.subCategory===s?'bg-stone-800 text-white':'bg-white text-stone-500'}`}>{s}</button>
                                                     ))}
                                                 </div>
                                             )}
@@ -1260,79 +1295,6 @@
                                 <div className="flex gap-2 mt-6">
                                     <button onClick={()=>setModal(null)} className="flex-1 bg-stone-100 py-3 rounded-xl font-bold text-stone-500">取消</button>
                                     <button onClick={handleTxSave} className="flex-1 bg-rose-500 text-white py-3 rounded-xl font-bold shadow-lg shadow-rose-200">儲存</button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                    
-                    {/* Recurring Modal */}
-                    {modal === 'recurring' && (
-                        <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4">
-                            <div className="bg-white w-full max-w-sm p-6 rounded-2xl max-h-[80vh] overflow-y-auto">
-                                <div className="flex justify-between items-center mb-4">
-                                    <h3 className="font-bold text-xl text-stone-800">固定收支管理</h3>
-                                    <button onClick={()=>setModal('addRecurring')} className="text-rose-500 font-bold bg-rose-50 px-3 py-1 rounded-lg">+ 新增</button>
-                                </div>
-                                <div className="space-y-3">
-                                    {recurring.map(r=>(
-                                        <div key={r.id} className="bg-stone-50 p-3 rounded-xl flex justify-between items-center border border-stone-100">
-                                            <div>
-                                                <p className="font-bold text-stone-700">{r.name} <span className="text-xs bg-stone-200 px-1 rounded ml-1 text-stone-500">每月{r.day}日</span></p>
-                                                <p className="text-xs text-stone-500">{r.type==='transfer'?'轉帳':r.category} • ${parseFloat(r.amount).toLocaleString()}</p>
-                                            </div>
-                                            <button onClick={()=>deleteData('recurring', r.id)} className="text-stone-300 hover:text-red-500"><Icon name="trash-2" size={16}/></button>
-                                        </div>
-                                    ))}
-                                    {recurring.length===0 && <p className="text-center text-stone-400 py-4 text-sm">目前無設定</p>}
-                                </div>
-                                <button onClick={()=>setModal('settings')} className="w-full mt-4 text-stone-400 py-2">關閉</button>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Add Recurring Modal */}
-                    {modal === 'addRecurring' && (
-                        <div className="fixed inset-0 z-[210] bg-black/50 flex items-center justify-center p-4">
-                            <div className="bg-white w-full max-w-sm p-6 rounded-2xl">
-                                <h3 className="font-bold text-xl mb-4 text-stone-800">新增固定項目</h3>
-                                <div className="grid grid-cols-3 gap-2 mb-4">
-                                    <button onClick={()=>{setRecForm({...recForm, type:'expense'});}} className={`p-2 text-sm rounded font-bold ${recForm.type==='expense'?'bg-rose-100 text-rose-600':'bg-stone-100 text-stone-500'}`}>支出</button>
-                                    <button onClick={()=>{setRecForm({...recForm, type:'income'});}} className={`p-2 text-sm rounded font-bold ${recForm.type==='income'?'bg-emerald-100 text-emerald-600':'bg-stone-100 text-stone-500'}`}>收入</button>
-                                    <button onClick={()=>{setRecForm({...recForm, type:'transfer'});}} className={`p-2 text-sm rounded font-bold ${recForm.type==='transfer'?'bg-slate-200 text-slate-700':'bg-stone-100 text-stone-500'}`}>轉帳</button>
-                                </div>
-                                <div className="space-y-3">
-                                    <input className="w-full p-2 border rounded" placeholder="名稱 (例如: 房租)" value={recForm.name} onChange={e=>setRecForm({...recForm, name:e.target.value})}/>
-                                    <input type="number" className="w-full p-2 border rounded tabular-nums" placeholder="金額" value={recForm.amount} onChange={e=>setRecForm({...recForm, amount:e.target.value})}/>
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-sm font-bold text-stone-500">每月</span>
-                                        <select className="flex-1 p-2 border rounded" value={recForm.day} onChange={e=>setRecForm({...recForm, day:parseInt(e.target.value)})}>
-                                            {[...Array(31)].map((_,i)=><option key={i+1} value={i+1}>{i+1}號</option>)}
-                                        </select>
-                                        <span className="text-sm font-bold text-stone-500">執行</span>
-                                    </div>
-                                    
-                                    {recForm.type !== 'transfer' && (
-                                        <select className="w-full p-2 border rounded" value={recForm.category} onChange={e=>setRecForm({...recForm, category:e.target.value})}>
-                                            <option value="">選擇類別</option>
-                                            {categories[recForm.type]?.map(c=><option key={c.name} value={c.name}>{c.name}</option>)}
-                                        </select>
-                                    )}
-
-                                    <select className="w-full p-2 border rounded" value={recForm.accountId} onChange={e=>setRecForm({...recForm, accountId:e.target.value})}>
-                                        <option value="">{recForm.type==='transfer'?'轉出帳戶':'帳戶'}</option>
-                                        {accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}
-                                    </select>
-                                    
-                                    {recForm.type === 'transfer' && (
-                                        <select className="w-full p-2 border rounded" value={recForm.toAccountId} onChange={e=>setRecForm({...recForm, toAccountId:e.target.value})}>
-                                            <option value="">轉入帳戶</option>
-                                            {accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}
-                                        </select>
-                                    )}
-                                </div>
-                                <div className="flex gap-2 mt-6">
-                                    <button onClick={()=>setModal('recurring')} className="flex-1 bg-stone-100 py-3 rounded-xl font-bold text-stone-500">取消</button>
-                                    <button onClick={handleRecurringSave} className="flex-1 bg-rose-500 text-white py-3 rounded-xl font-bold shadow-lg">儲存</button>
                                 </div>
                             </div>
                         </div>
