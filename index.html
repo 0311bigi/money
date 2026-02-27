@@ -159,6 +159,7 @@
         const [installment, setInstallment] = useState({ enabled:false, periods:3 });
         const [settleToAccount, setSettleToAccount] = useState('');
         const [newMarketValue, setNewMarketValue] = useState('');
+		const [closingRate, setClosingRate] = useState('');
         const [holdingForm, setHoldingForm] = useState([]);
         const [editingCategoryType, setEditingCategoryType] = useState('expense');
         const [editingCategory, setEditingCategory] = useState(null);
@@ -1197,10 +1198,10 @@
                                                                         <button onClick={(e)=>{ e.stopPropagation(); setEditTarget(acc); setHoldingForm(acc.holdings || []); setNewMarketValue(acc.marketValue || ''); setClosingRate(acc.currency !== 'TWD' ? (acc.customRate || exchangeRates[acc.currency] || '') : ''); setModal('market'); }} className="text-rose-500 font-bold bg-rose-50 px-2 py-1 rounded hover:bg-rose-100 transition-colors">調整市值</button>
                                                                     </div>
                                                                 )}
-                                                            </div> // ✅ 這裡關閉了單個帳戶卡片的 div
+                                                            </div> 
                                                         );
                                                     })}
-                                                </div> // ✅ 這裡關閉了 grid 的 div
+                                                </div> 
                                                 {/* 下面接著是 archivedAccounts 的區塊 (維持你原本的) */}
                                                 
                                                 {/* 折疊的停用帳戶區塊 */}
