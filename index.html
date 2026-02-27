@@ -447,8 +447,7 @@
                     if (t.type==='expense') exp += baseAmt;
                 }
             });
-            accounts.forEach(a => { if(a.includeInTotal !== false) { let v = (a.type==='invest' && a.marketValue) ? parseFloat(a.marketValue) : (bals[a.id]||0); if(a.currency!=='TWD') v *= (exchangeRates[a.currency]||1); totalAsset+=v; } });
-            return { bals, totalAsset, inc, exp, debt, advanceMap };
+            accounts.forEach(a => { if(a.includeInTotal !== false) { let v = (a.type==='invest' && a.marketValue) ? parseFloat(a.marketValue) : (bals[a.id]||0); if(a.currency!=='TWD') v *= (a.customRate || exchangeRates[a.currency]||1); totalAsset+=v; } });            return { bals, totalAsset, inc, exp, debt, advanceMap };
         }, [accounts, transactions, currentLedgerMonth, currentBook, exchangeRates]);
 
         const retireProgress = useMemo(() => {
@@ -768,21 +767,27 @@
         const handleUpdateMarketValue = async () => { 
             if (!editTarget) return; 
             
-            // 如果有持倉資料，優先使用持倉計算出的總額
             let finalMarketValue = parseFloat(newMarketValue) || 0;
             if (holdingForm.length > 0) {
-                const totalFromHoldings = holdingForm.reduce((sum, h) => sum + ((parseFloat(h.qty)||0) * (parseFloat(h.price)||0)), 0);
-                // 如果持倉總額 > 0，就用算出來的覆蓋原本手輸的
-                if (totalFromHoldings > 0) finalMarketValue = totalFromHoldings;
+                finalMarketValue = holdingForm.reduce((sum, h) => sum + (parseFloat(h.price)||0), 0);
             }
 
             const accRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid, 'accounts', editTarget.id); 
             
-            // 同時更新「市值」與「持倉明細」
-            await fbRef.current.updateDoc(accRef, { 
+            const updateData = { 
                 marketValue: finalMarketValue,
                 holdings: holdingForm
-            }); 
+            };
+            
+            // 💡 智慧判斷：如果是外幣帳戶，把輸入的匯率存成該帳戶的「專屬匯率」
+            const cRate = parseFloat(closingRate);
+            if (!isNaN(cRate) && cRate > 0 && editTarget.currency !== 'TWD') {
+                updateData.customRate = cRate;
+            } else {
+                updateData.customRate = null; // 如果清空輸入框，就清除專屬匯率
+            }
+
+            await fbRef.current.updateDoc(accRef, updateData); 
             setModal(null); 
         };
 
@@ -1171,11 +1176,15 @@
                                                                         </p>
                                                                     );
                                                                 })()}
-                                                                {/* 外幣也一律用成本去換算台幣 */}
-                                                                {acc.currency!=='TWD' && <p className="text-xs text-stone-400 font-bold tabular-nums ml-7">≈ TWD ${safeNum(Math.round((stats.bals[acc.id]||0) * (exchangeRates[acc.currency]||1)))}</p>}
+                                                                {/* 外幣也一律用成本去換算台幣，如果有專屬匯率就用專屬的 */}
+                                                                {acc.currency!=='TWD' && (
+                                                                    <p className="text-xs text-stone-400 font-bold tabular-nums ml-7 flex items-center gap-1">
+                                                                        ≈ TWD ${safeNum(Math.round((stats.bals[acc.id]||0) * (acc.customRate || exchangeRates[acc.currency]||1)))}
+                                                                        {acc.customRate && <span className="font-normal text-[9px] bg-stone-100 text-stone-400 px-1 rounded">專屬匯率</span>}
+                                                                    </p>
+                                                                )}
                                                                 {acc.type === 'invest' && (
                                                                     <div className="mt-2 pt-2 border-t flex justify-between items-center text-xs ml-7 mr-6" onClick={e => e.stopPropagation()}>
-                                                                        {/* 💡 改動 2：下方小字改為顯示市值，並附上損益差額彩蛋 */}
                                                                         <span className="text-stone-400 flex items-center gap-1 font-bold">
                                                                             市值: ${safeNum(acc.marketValue || stats.bals[acc.id])}
                                                                             {acc.marketValue && acc.marketValue !== stats.bals[acc.id] && (
@@ -1184,7 +1193,8 @@
                                                                                 </span>
                                                                             )}
                                                                         </span>
-                                                                        <button onClick={(e)=>{ e.stopPropagation(); setEditTarget(acc); setHoldingForm(acc.holdings || []); setNewMarketValue(acc.marketValue || ''); setModal('market'); }} className="text-rose-500 font-bold bg-rose-50 px-2 py-1 rounded hover:bg-rose-100 transition-colors">調整市值</button>
+                                                                        {/* 💡 修改：按鈕點擊時，預設帶入 acc.customRate */}
+                                                                        <button onClick={(e)=>{ e.stopPropagation(); setEditTarget(acc); setHoldingForm(acc.holdings || []); setNewMarketValue(acc.marketValue || ''); setClosingRate(acc.currency !== 'TWD' ? (acc.customRate || exchangeRates[acc.currency] || '') : ''); setModal('market'); }} className="text-rose-500 font-bold bg-rose-50 px-2 py-1 rounded hover:bg-rose-100 transition-colors">調整市值</button>
                                                                     </div>
                                                                 )}
                                                             </div> // ✅ 這裡關閉了單個帳戶卡片的 div
