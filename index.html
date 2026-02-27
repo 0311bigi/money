@@ -416,7 +416,15 @@
         };
 		
         const stats = useMemo(() => {
-            const bals = {}; accounts.forEach(a => bals[a.id] = parseFloat(a.initialBalance)||0);
+        const bals = {}; 
+        accounts.forEach(a => {
+            let init = parseFloat(a.initialBalance) || 0;
+            // 如果是信用卡或應付帳款，且期初輸入為正數，自動轉為負債 (負數)
+            if ((a.type === 'credit' || a.type === 'payable') && init > 0) {
+                init = -init;
+            }
+            bals[a.id] = init;
+        });
             const advanceMap = {}; 
             transactions.forEach(t => { if (t.type === 'advance') advanceMap[t.id] = { ...t, repaid: 0, remaining: parseFloat(t.amount) }; });
             transactions.forEach(t => { if (t.type === 'repayment' && t.relatedTxId && advanceMap[t.relatedTxId]) { const repaidAmt = parseFloat(t.amount); advanceMap[t.relatedTxId].repaid += repaidAmt; advanceMap[t.relatedTxId].remaining -= repaidAmt; } });
@@ -556,6 +564,10 @@
             });
 
             let balance = parseFloat(viewingAccount.initialBalance) || 0;
+            // 如果是信用卡或應付帳款，明細起始點同樣視為負債
+            if ((viewingAccount.type === 'credit' || viewingAccount.type === 'payable') && balance > 0) {
+                balance = -balance;
+            }
             const withBalance = related.map(t => {
                 const amt = parseFloat(t.amount);
                 let change = 0;
@@ -996,7 +1008,10 @@
                                                                 <div className="flex items-center gap-3">
                                                                     <div className={`p-2 rounded-lg ${tx.displayType==='income'?'bg-emerald-100 text-emerald-600': tx.displayType==='expense'?'bg-rose-100 text-rose-600':'bg-stone-100 text-stone-600'}`}><Icon name={getCategoryIcon(tx.category, tx.type)} size={18}/></div>
                                                                     <div>
-                                                                        <p className="font-bold text-sm text-stone-800">{tx.category}</p>
+                                                                        <p className="font-bold text-sm text-stone-800">
+                                                                            {tx.type === 'advance' ? `代墊: ${tx.debtor}` : (tx.category || '未分類')}
+                                                                            {tx.subCategory && <span className="text-xs text-stone-400 ml-1">({tx.subCategory})</span>}
+                                                                        </p>
                                                                         {tx.note && <p className="text-xs text-stone-500">{tx.note}</p>}
                                                                     </div>
                                                                 </div>
@@ -1112,10 +1127,26 @@
                                             <div className="flex gap-3 items-center mb-2">
                                                 <div className="text-stone-300 cursor-move" onClick={e => e.stopPropagation()}><Icon name="grip-vertical" size={16}/></div>
                                                 <div className={`p-2 rounded-lg ${ACCOUNT_TYPES[acc.type]?.color || 'bg-stone-100 text-stone-600'}`}><Icon name={ACCOUNT_TYPES[acc.type]?.iconName || 'wallet'} size={18}/></div>
-                                                <div><h3 className="font-bold text-stone-700">{acc.name}</h3>{acc.includeInTotal === false && <span className="text-xs bg-stone-100 text-stone-400 px-1 rounded">不計入</span>}</div>
-                                            </div>
-                                            <p className="text-2xl font-black tabular-nums text-stone-800 ml-7">${safeNum(acc.marketValue || stats.bals[acc.id])} <span className="text-xs text-stone-400 font-normal">{acc.currency}</span></p>
-                                            {acc.currency!=='TWD' && <p className="text-xs text-stone-400 font-bold tabular-nums ml-7">≈ TWD ${safeNum(Math.round((acc.marketValue || stats.bals[acc.id]||0) * (exchangeRates[acc.currency]||1)))}</p>}
+                                                <div>
+                                                 <h3 className="font-bold text-stone-700 flex items-center gap-2">
+                                                     {acc.name}
+                                                     {/* 動態負債標籤 */}
+                                                     {(acc.type === 'credit' || acc.type === 'payable') && <span className="text-[10px] bg-rose-50 text-rose-500 border border-rose-100 px-1.5 py-0.5 rounded font-bold">負債</span>}
+                                                 </h3>
+                                                 {acc.includeInTotal === false && <span className="text-[10px] bg-stone-100 text-stone-400 px-1.5 py-0.5 rounded mt-0.5 inline-block">不計入</span>}
+                                             </div>
+                                         </div>
+                                         {/* 智慧餘額顯示：負債且餘額小於0時，數字變紅且把負號拉到貨幣符號前面 */}
+                                         {(() => {
+                                             const bal = acc.marketValue || stats.bals[acc.id] || 0;
+                                             const isDebt = (acc.type === 'credit' || acc.type === 'payable');
+                                             return (
+                                                 <p className={`text-2xl font-black tabular-nums ml-7 ${isDebt && bal < 0 ? 'text-rose-600' : 'text-stone-800'}`}>
+                                                     {isDebt && bal < 0 ? '-' : ''}${safeNum(Math.abs(bal))} <span className="text-xs text-stone-400 font-normal">{acc.currency}</span>
+                                                 </p>
+                                             );
+                                         })()}
+                                     {acc.currency!=='TWD' && <p className="text-xs text-stone-400 font-bold tabular-nums ml-7">≈ TWD ${safeNum(Math.round((acc.marketValue || stats.bals[acc.id]||0) * (exchangeRates[acc.currency]||1)))}</p>}
                                             {acc.type === 'invest' && (
                                                 <div className="mt-2 pt-2 border-t flex justify-between items-center text-xs ml-7 mr-6" onClick={e => e.stopPropagation()}>
                                                     <span className="text-stone-400">成本: ${safeNum(stats.bals[acc.id])}</span>
