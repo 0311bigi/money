@@ -317,7 +317,41 @@
             setLoading(false);
             return () => unsubs.forEach(u => u());
         }, [user, sdkReady]);
-
+        // --- 新增：背景自動抓取台銀匯率 ---
+        useEffect(() => {
+            if (!user || !sdkReady) return;
+            const autoFetchRates = async () => {
+                try {
+                    // 呼叫你的 GAS 爬蟲 API
+                    const res = await fetch('https://script.google.com/macros/s/AKfycbxWOtO6F00m_OAu0zc1hzQn4F2BieA1ZXAF7Bv_8i5L5KfeN9kV07C_6JFH9DuJ_M4/exec');
+                    const data = await res.json();
+                    
+                    if (!data.error) {
+                        const newRates = { ...exchangeRates };
+                        let hasUpdate = false;
+                        
+                        // 將抓到的匯率與現有支援的幣別比對
+                        CURRENCIES.forEach(c => {
+                            if (data[c] && data[c] !== newRates[c]) {
+                                newRates[c] = data[c];
+                                hasUpdate = true;
+                            }
+                        });
+                        
+                        // 如果有更新，就寫入 Firebase 儲存
+                        if (hasUpdate) {
+                            setExchangeRates(newRates);
+                            fbRef.current.setDoc(fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid, 'settings', 'rates'), newRates, {merge: true});
+                        }
+                    }
+                } catch(e) { 
+                    console.log("自動更新匯率失敗，使用舊有匯率", e); 
+                }
+            };
+            
+            autoFetchRates();
+        }, [user, sdkReady]); // 每次登入或重整網頁時觸發一次
+			
         const saveData = async (col, data, id=null) => {
             const ref = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
             if (id) await fbRef.current.updateDoc(fbRef.current.doc(ref, col, id), data);
@@ -369,7 +403,18 @@
             setModal(null);
             setSettleTargetTx(null);
         };
-
+        // --- 新增：取得換算後的台幣金額 ---
+        // --- 修正：優先使用交易當下鎖定的匯率 ---
+        const getBaseAmt = (tx, accs, rates) => {
+            const amt = parseFloat(tx.amount) || 0;
+            const acc = accs.find(a => a.id === tx.accountId);
+            if (!acc || !acc.currency || acc.currency === 'TWD') return amt;
+            
+            // 💡 關鍵：如果這筆交易有存當下的匯率，就用當下的；如果沒有(舊資料)，才退回用全域匯率
+            const appliedRate = tx.exchangeRate || rates[acc.currency] || 1;
+            return amt * appliedRate;
+        };
+		
         const stats = useMemo(() => {
             const bals = {}; accounts.forEach(a => bals[a.id] = parseFloat(a.initialBalance)||0);
             const advanceMap = {}; 
@@ -389,8 +434,9 @@
                 
                 const txDate = String(t.date || '');
                 if ((t.bookId||'main') === currentBook.id && txDate.startsWith(currentLedgerMonth)) {
-                    if (t.type==='income') inc+=amt;
-                    if (t.type==='expense') exp+=amt;
+                    const baseAmt = getBaseAmt(t, accounts, exchangeRates); // 換算成台幣
+                    if (t.type==='income') inc += baseAmt;
+                    if (t.type==='expense') exp += baseAmt;
                 }
             });
             accounts.forEach(a => { if(a.includeInTotal !== false) { let v = (a.type==='invest' && a.marketValue) ? parseFloat(a.marketValue) : (bals[a.id]||0); if(a.currency!=='TWD') v *= (exchangeRates[a.currency]||1); totalAsset+=v; } });
@@ -436,16 +482,21 @@
             }
 
             const targetTx = filteredTx.filter(t => t.type === analysisType);
-            const total = targetTx.reduce((sum, t) => sum + (parseFloat(t.amount)||0), 0);
+            // ✅ 改用 getBaseAmt 計算總額
+            const total = targetTx.reduce((sum, t) => sum + getBaseAmt(t, accounts, exchangeRates), 0);
             
             const breakdown = {};
             targetTx.forEach(t => {
                 const cat = t.category;
                 const sub = t.subCategory || '無子類別';
-                const amt = parseFloat(t.amount);
+                const baseAmt = getBaseAmt(t, accounts, exchangeRates); // ✅ 換算成台幣
                 
                 if (!breakdown[cat]) breakdown[cat] = { total: 0, subs: {}, txs: [] };
-                breakdown[cat].total += amt;
+                breakdown[cat].total += baseAmt;
+                breakdown[cat].txs.push(t);
+                
+                if (!breakdown[cat].subs[sub]) breakdown[cat].subs[sub] = 0;
+                breakdown[cat].subs[sub] += baseAmt;
                 breakdown[cat].txs.push(t);
                 
                 if (!breakdown[cat].subs[sub]) breakdown[cat].subs[sub] = 0;
@@ -492,9 +543,9 @@
                 const m = String(t.date || '').substring(0, 7);
                 const match = last6Months.find(d => d.month === m);
                 if (match) {
-                    const amt = parseFloat(t.amount) || 0;
-                    if (t.type === 'income') match.income += amt;
-                    else if (t.type === 'expense') match.expense += amt;
+                    const baseAmt = getBaseAmt(t, accounts, exchangeRates); // ✅ 換算成台幣
+                    if (t.type === 'income') match.income += baseAmt;
+                    else if (t.type === 'expense') match.expense += baseAmt;
                 }
             });
             return last6Months;
@@ -557,7 +608,20 @@
             }
             
             const createdAt = editingTx ? editingTx.createdAt : new Date().toISOString();
-            const base = { ...txForm, bookId: currentBook.id, amount: amt, category: finalCategory, createdAt };
+            
+            // --- 新增：抓出該帳戶目前的匯率 ---
+            const selectedAcc = accounts.find(a => a.id === txForm.accountId);
+            const currentRate = (selectedAcc && selectedAcc.currency !== 'TWD') ? (exchangeRates[selectedAcc.currency] || 1) : 1;
+
+            // 把 currentRate 塞進 base 物件裡
+            const base = { 
+                ...txForm, 
+                bookId: currentBook.id, 
+                amount: amt, 
+                category: finalCategory, 
+                createdAt,
+                exchangeRate: currentRate // ✅ 將當下匯率存入此筆交易
+            };
             
             if (editingTx) {
                 saveData('transactions', base, editingTx.id);
@@ -1003,8 +1067,18 @@
                                                                         <div><p className="font-bold text-sm text-stone-800">{tx.type === 'advance' ? `代墊: ${tx.debtor}` : (tx.category || '未分類')} {tx.subCategory && <span className="text-xs text-stone-400 ml-1">({tx.subCategory})</span>}</p><p className="text-xs text-stone-400 mt-0.5">{tx.note}</p></div>
                                                                     </div>
                                                                     <div className="text-right">
-                                                                        <p className={`font-bold tabular-nums ${tx.type==='income'?'text-emerald-600':'text-stone-800'}`}>{tx.type==='income'?'+':'-'}{safeNum(tx.amount)}</p>
-                                                                        <div className="flex items-center justify-end gap-1 mt-0.5">
+                                                                    {(() => {
+                                                                        const isForeign = acc && acc.currency !== 'TWD';
+                                                                        const baseAmt = getBaseAmt(tx, accounts, exchangeRates);
+                                                                        return (
+                                                                            <div className="text-right">
+                                                                                <p className={`font-bold tabular-nums ${tx.type==='income'?'text-emerald-600':'text-stone-800'}`}>
+                                                                                    {tx.type==='income'?'+':'-'}{safeNum(isForeign ? baseAmt : tx.amount)}
+                                                                                </p>
+                                                                                {isForeign && <p className="text-[10px] text-stone-400 mt-0.5 font-bold">({acc.currency} {tx.amount})</p>}
+                                                                            </div>
+                                                                        );
+                                                                    })()}                                                                        <div className="flex items-center justify-end gap-1 mt-0.5">
                                                                             <span className="text-xs text-stone-400 bg-black/5 px-1.5 py-0.5 rounded">{accName}</span>
                                                                             <button onClick={(e)=>{e.stopPropagation();deleteData('transactions', tx.id)}} className="text-stone-300 hover:text-rose-500 p-1"><Icon name="trash-2" size={14}/></button>
                                                                         </div>
@@ -1158,8 +1232,18 @@
                                                                                                     <span className="text-[10px] text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded tabular-nums group-hover:bg-white group-hover:shadow-sm transition-all">{t.date.slice(5)}</span>
                                                                                                     <span className="text-xs text-stone-600 truncate">{t.note || <span className="text-stone-300 italic">無備註</span>}</span>
                                                                                                 </div>
-                                                                                                <div className="tabular-nums font-bold text-xs text-stone-500 group-hover:text-stone-800">${safeNum(t.amount)}</div>
-                                                                                            </div>
+                                                                                        {(() => {
+                                                                                            const acc = accounts.find(a => a.id === t.accountId);
+                                                                                            const isForeign = acc && acc.currency !== 'TWD';
+                                                                                            return (
+                                                                                                <div className="text-right">
+                                                                                                    <div className="tabular-nums font-bold text-xs text-stone-500 group-hover:text-stone-800">
+                                                                                                        ${safeNum(getBaseAmt(t, accounts, exchangeRates))}
+                                                                                                    </div>
+                                                                                                    {isForeign && <div className="text-[9px] text-stone-400 mt-0.5">({acc.currency} {t.amount})</div>}
+                                                                                                </div>
+                                                                                            );
+                                                                                        })()}                                                                                            </div>
                                                                                         ))}
                                                                                     </>
                                                                                 ) : (
@@ -1272,7 +1356,35 @@
                                                 <button onClick={()=>{setEditingCategoryType(txForm.type); setModal('cat');}} className="px-3 bg-stone-100 rounded-lg text-stone-500 hover:bg-stone-200 flex items-center justify-center" title="管理類別"><Icon name="plus" size={20}/></button>
                                             </div>
                                             {categories[txForm.type].find(c=>c.name===txForm.category)?.subs?.length > 0 && (<div className="flex flex-wrap gap-2">{categories[txForm.type].find(c=>c.name===txForm.category).subs.map(s=>(<button key={s} onClick={()=>setTxForm({...txForm, subCategory:s})} className={`px-3 py-1 rounded-full text-xs font-bold border transition-colors ${txForm.subCategory===s?'bg-stone-800 text-white':'bg-white text-stone-500'}`}>{s}</button>))}</div>)}
-                                            {!isOffset ? (<select className="w-full bg-stone-50 p-3 rounded-lg font-bold text-stone-700" value={txForm.accountId} onChange={e=>setTxForm({...txForm, accountId:e.target.value})}><option value="">選擇帳戶</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select>) : (<select className="w-full bg-rose-50 border-rose-200 p-3 rounded-lg font-bold text-rose-700" value={offsetTargetId} onChange={e=>setOffsetTargetId(e.target.value)}><option value="">選擇待收對象...</option>{Object.values(stats.advanceMap).filter(a => !a.isSettled && a.remaining > 0.1).map(adv => (<option key={adv.id} value={adv.id}>{adv.debtor} (剩餘 ${adv.remaining})</option>))}</select>)}
+                                {!isOffset ? (
+                                    <div className="w-full">
+                                        <select className="w-full bg-stone-50 p-3 rounded-lg font-bold text-stone-700" value={txForm.accountId} onChange={e=>setTxForm({...txForm, accountId:e.target.value})}>
+                                            <option value="">選擇帳戶</option>
+                                            {accounts.map(a=><option key={a.id} value={a.id}>{a.name} {a.currency !== 'TWD' ? `(${a.currency})` : ''}</option>)}
+                                        </select>
+                                        
+                                        {/* 新增：外幣帳戶匯率提示與換算金額 */}
+                                        {(() => {
+                                            const acc = accounts.find(a => a.id === txForm.accountId);
+                                            if (acc && acc.currency !== 'TWD') {
+                                                const rate = exchangeRates[acc.currency] || 1;
+                                                const inputAmt = parseFloat(txForm.amount) || 0;
+                                                return (
+                                                    <div className="flex justify-between items-center text-xs mt-1.5 px-1">
+                                                        <span className="text-stone-400 font-bold">目前匯率: 1 {acc.currency} = {rate} TWD</span>
+                                                        {inputAmt > 0 && <span className="text-rose-500 font-bold tabular-nums">≈ NT$ {Math.round(inputAmt * rate).toLocaleString()}</span>}
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
+                                    </div>
+                                ) : (
+                                    <select className="w-full bg-rose-50 border-rose-200 p-3 rounded-lg font-bold text-rose-700" value={offsetTargetId} onChange={e=>setOffsetTargetId(e.target.value)}>
+                                        <option value="">選擇待收對象...</option>
+                                        {Object.values(stats.advanceMap).filter(a => !a.isSettled && a.remaining > 0.1).map(adv => (<option key={adv.id} value={adv.id}>{adv.debtor} (剩餘 ${adv.remaining})</option>))}
+                                    </select>
+                                )}
                                         </>
                                     )}
                                     <div className="flex items-center gap-2">
@@ -1296,7 +1408,68 @@
                     {modal === 'retire' && (<div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4"><div className="bg-white w-full max-w-sm p-6 rounded-2xl"><h3 className="font-bold text-xl mb-4 text-stone-800">退休計畫</h3><input type="number" placeholder="目前年齡" className="w-full p-3 border rounded-lg mb-2 tabular-nums" value={retireForm.currentAge} onChange={e=>setRetireForm({...retireForm, currentAge:e.target.value})}/><input type="number" placeholder="退休年齡" className="w-full p-3 border rounded-lg mb-2 tabular-nums" value={retireForm.retireAge} onChange={e=>setRetireForm({...retireForm, retireAge:e.target.value})}/><input type="number" placeholder="月花費" className="w-full p-3 border rounded-lg mb-2 tabular-nums" value={retireForm.monthlyExpense} onChange={e=>setRetireForm({...retireForm, monthlyExpense:e.target.value})}/><button onClick={()=>{saveData('settings', retireForm, 'retirement'); setModal(null);}} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold shadow-lg">儲存</button><button onClick={()=>setModal(null)} className="w-full mt-2 text-stone-400">取消</button></div></div>)}
                     {modal === 'cat' && (<div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4"><div className="bg-white w-full max-w-sm p-6 rounded-2xl max-h-[80vh] overflow-y-auto"><h3 className="font-bold text-xl mb-4 text-stone-800">類別管理</h3><div className="flex gap-2 mb-4"><button onClick={()=>setEditingCategoryType('expense')} className={`flex-1 py-2 rounded ${editingCategoryType==='expense'?'bg-rose-500 text-white':'bg-stone-100 text-stone-500'}`}>支出</button><button onClick={()=>setEditingCategoryType('income')} className={`flex-1 py-2 rounded ${editingCategoryType==='income'?'bg-rose-500 text-white':'bg-stone-100 text-stone-500'}`}>收入</button></div><div className="space-y-2">{categories[editingCategoryType].map(c=>(<div key={c.name} className="flex justify-between p-3 bg-stone-50 rounded-lg cursor-pointer hover:bg-stone-100" onClick={()=>{setEditingCategory(c); setModal('editCat')}}><span><Icon name={c.icon} size={14} className="inline mr-2"/>{c.name}</span><span className="text-xs text-stone-400">{c.subs.length} 子類別 ></span></div>))}</div><div className="mt-4 pt-4 border-t flex gap-2"><input id="newCatName" placeholder="新類別名稱" className="flex-1 p-2 border rounded" value={newCatForm.name} onChange={e=>setNewCatForm({...newCatForm, name:e.target.value, type:editingCategoryType})}/><button onClick={handleAddCategory} className="bg-blue-600 text-white px-4 rounded">新增</button></div><button onClick={()=>setModal(null)} className="w-full mt-4 text-stone-400">關閉</button></div></div>)}
                     {modal === 'editCat' && editingCategory && (<div className="fixed inset-0 z-[210] bg-black/50 flex items-center justify-center p-4"><div className="bg-white w-full max-w-sm p-6 rounded-2xl"><div className="flex items-center gap-2 mb-4"><Icon name={editingCategory.icon} size={24} className="text-rose-500"/><input className="font-bold text-xl bg-transparent border-b border-stone-300 focus:border-rose-500 outline-none w-full py-1" value={editingCategory.name} onChange={(e) => handleEditMainCategoryName(e.target.value)}/></div><div className="mb-4 h-24 overflow-y-auto grid grid-cols-6 gap-2 p-2 bg-stone-50 rounded border border-stone-100">{AVAILABLE_ICONS.map(icon => (<button key={icon} onClick={() => handleEditMainCategoryIcon(icon)} className={`p-2 rounded hover:bg-stone-200 transition-colors ${editingCategory.icon === icon ? 'bg-rose-100 text-rose-500' : 'text-stone-400'}`}><Icon name={icon} size={18}/></button>))}</div><div className="flex flex-wrap gap-2 mb-4 max-h-32 overflow-y-auto">{editingCategory.subs.map(s => (<span key={s} className="bg-stone-100 px-3 py-1 rounded-full text-sm flex items-center gap-1 text-stone-600 border border-stone-200">{s} <button onClick={() => handleDeleteSubCategory(editingCategory.name, s)} className="text-stone-400 hover:text-red-500 w-4 h-4 flex items-center justify-center rounded-full hover:bg-red-50"><Icon name="x" size={12}/></button></span>))}</div><div className="flex gap-2 mb-6"><input id="newSubCat" className="flex-1 border border-stone-200 p-2 rounded-lg text-sm outline-none focus:border-rose-500 transition-colors" placeholder="新增子類別" /><button onClick={() => { const input = document.getElementById('newSubCat'); handleAddSubCategory(editingCategory.name, input.value); input.value = ''; input.focus(); }} className="bg-rose-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-rose-600 active:scale-95 transition-all">新增</button></div><div className="pt-4 border-t border-stone-100 flex flex-col gap-3"><button onClick={() => { handleDeleteCategory(editingCategory.name); setModal('cat'); }} className="w-full text-red-400 text-xs py-2 hover:bg-red-50 rounded-lg flex items-center justify-center gap-1 transition-colors"><Icon name="trash-2" size={14} /> 刪除此主類別</button><div className="flex gap-3"><button onClick={() => setModal('cat')} className="flex-1 py-3 rounded-xl bg-stone-100 text-stone-500 font-bold hover:bg-stone-200 transition-colors">取消</button><button onClick={handleSaveCategoryChanges} className="flex-1 py-3 rounded-xl bg-stone-800 text-white font-bold shadow-lg hover:bg-stone-900 transition-transform active:scale-95">確定儲存</button></div></div></div></div>)}
-                    {modal === 'rate' && (<div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4"><div className="bg-white w-full max-w-sm p-6 rounded-2xl max-h-[80vh] overflow-y-auto"><h3 className="font-bold text-xl mb-4 text-stone-800">匯率設定 (1 外幣 = ? TWD)</h3><div className="space-y-2">{CURRENCIES.filter(c=>c!=='TWD').map(c=>(<div key={c} className="flex justify-between items-center"><span className="font-bold w-12 text-stone-600">{c}</span><input type="number" className="border p-2 rounded w-32 text-right tabular-nums" value={exchangeRates[c]||''} onChange={e=>setExchangeRates({...exchangeRates, [c]:parseFloat(e.target.value)})}/></div>))}</div><button onClick={handleRatesSubmit} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold mt-4 shadow-lg">儲存</button></div></div>)}
+                    {modal === 'rate' && (
+                        <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4">
+                            <div className="bg-white w-full max-w-sm p-6 rounded-2xl max-h-[80vh] overflow-y-auto">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h3 className="font-bold text-xl text-stone-800">匯率設定</h3>
+                                    {/* 加上自動抓取按鈕 */}
+                                    <button 
+                                        onClick={async (e) => {
+                                            const btn = e.currentTarget;
+                                            const originalText = btn.innerHTML;
+                                            btn.innerHTML = '<span class="animate-pulse">抓取中...</span>';
+                                            btn.disabled = true;
+                                            try {
+                                                // 呼叫你的 GAS 測試版 API
+                                                const res = await fetch('https://script.google.com/macros/s/AKfycbxLhIsN_32Zelwr34NZm7VRg8gumusDji2R5qpzZ-MvP-n55QSzItQdiM016d6z8SI/exec');
+                                                const data = await res.json();
+                                                if (data.error) throw new Error(data.error);
+                                                
+                                                // 更新前端 State，保留原本有的幣別
+                                                const newRates = { ...exchangeRates };
+                                                CURRENCIES.forEach(c => {
+                                                    if (data[c]) newRates[c] = data[c];
+                                                });
+                                                setExchangeRates(newRates);
+                                                alert("✅ 成功從台灣銀行更新即時匯率！");
+                                            } catch (err) {
+                                                alert("❌ 匯率更新失敗，請檢查網路或 API 設定。");
+                                            } finally {
+                                                btn.innerHTML = originalText;
+                                                btn.disabled = false;
+                                            }
+                                        }}
+                                        className="text-xs bg-stone-100 text-stone-600 font-bold px-3 py-1.5 rounded-lg hover:bg-rose-50 hover:text-rose-600 transition-colors"
+                                    >
+                                        <Icon name="refresh-cw" size={12} className="inline mr-1 -mt-0.5"/>
+                                        台銀即時匯率
+                                    </button>
+                                </div>
+                                
+                                <p className="text-xs text-stone-400 mb-4">設定 1 外幣 = 多少 TWD</p>
+                                
+                                <div className="space-y-2">
+                                    {CURRENCIES.filter(c => c !== 'TWD').map(c => (
+                                        <div key={c} className="flex justify-between items-center">
+                                            <span className="font-bold w-12 text-stone-600">{c}</span>
+                                            <input 
+                                                type="number" 
+                                                className="border p-2 rounded w-32 text-right tabular-nums bg-stone-50" 
+                                                value={exchangeRates[c] || ''} 
+                                                onChange={e => setExchangeRates({...exchangeRates, [c]: parseFloat(e.target.value)})}
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+                                
+                                <div className="flex gap-2 mt-6">
+                                    <button onClick={() => setModal(null)} className="flex-1 py-3 rounded-xl bg-stone-100 text-stone-500 font-bold">取消</button>
+                                    <button onClick={handleRatesSubmit} className="flex-1 bg-rose-500 text-white py-3 rounded-xl font-bold shadow-lg shadow-rose-200">儲存設定</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                     {/* --- 修改開始：升級版市值更新視窗 (支援持倉明細) --- */}
                     {modal === 'market' && editTarget && (
                         <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4">
