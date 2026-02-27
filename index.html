@@ -283,7 +283,14 @@
             };
 
             const unsubs = [
-                fbRef.current.onSnapshot(fbRef.current.collection(userRef, 'transactions'), s => setTransactions(s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>new Date(b.date)-new Date(a.date)))),
+            fbRef.current.onSnapshot(fbRef.current.collection(userRef, 'transactions'), s => {
+                const docs = s.docs.map(d => ({id: d.id, ...d.data()}));
+                docs.sort((a, b) => {
+                    if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+                    return (a.createdAt || '') < (b.createdAt || '') ? 1 : -1;
+                });
+                setTransactions(docs);
+            }),
                 fbRef.current.onSnapshot(fbRef.current.collection(userRef, 'accounts'), s => { 
                     const a = s.docs.map(d=>({id:d.id,...d.data()})).sort((a, b) => (a.order || 0) - (b.order || 0)); 
                     setAccounts(a); 
@@ -453,7 +460,10 @@
                     .map(([subName, subVal]) => ({ name: subName, value: subVal, percent: (subVal / data.total) * 100 }))
                     .sort((a,b) => b.value - a.value);
 
-                return { name, value: data.total, percent, color, subs: subList, txs: data.txs.sort((a,b)=>new Date(b.date)-new Date(a.date)) };
+                return { 
+                    name, value: data.total, percent, color, subs: subList, 
+                    txs: data.txs.sort((a, b) => a.date < b.date ? 1 : (a.date > b.date ? -1 : 0)) 
+                };
             }).sort((a,b) => b.value - a.value);
 
             return { total, chart: chartData };
@@ -494,10 +504,8 @@
             if (!viewingAccount) return null;
             const related = transactions.filter(t => t.accountId === viewingAccount.id || t.toAccountId === viewingAccount.id);
             related.sort((a, b) => {
-                const dateA = new Date(a.date).getTime();
-                const dateB = new Date(b.date).getTime();
-                if (dateA !== dateB) return dateA - dateB; 
-                return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+                if (a.date !== b.date) return a.date > b.date ? 1 : -1;
+                return (a.createdAt || '') > (b.createdAt || '') ? 1 : -1;
             });
 
             let balance = parseFloat(viewingAccount.initialBalance) || 0;
@@ -516,11 +524,9 @@
             });
 
             const monthTxs = withBalance.filter(t => String(t.date || '').startsWith(accountDetailMonth));
-            const displayList = [...monthTxs].sort((a, b) => { 
-                    const dateA = new Date(a.date).getTime();
-                    const dateB = new Date(b.date).getTime();
-                    if (dateA !== dateB) return dateB - dateA;
-                    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+            const displayList = [...monthTxs].sort((a, b) => {
+                if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+                return (a.createdAt || '') < (b.createdAt || '') ? 1 : -1;
             });
 
             let mIncome = 0, mExpense = 0, mTrans = 0;
@@ -746,64 +752,74 @@
         const changeMonthStep = (step) => { const [y, m] = currentLedgerMonth.split('-').map(Number); const date = new Date(y, m - 1 + step, 1); setCurrentLedgerMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`); };
         const changeDetailMonthStep = (step) => { const [y, m] = accountDetailMonth.split('-').map(Number); const date = new Date(y, m - 1 + step, 1); setAccountDetailMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`); };
         const handleEditMainCategoryName = async (newName) => { if (!newName || !editingCategory) return; const newCats = { ...categories }; const catIdx = newCats[editingCategoryType].findIndex(c => c.name === editingCategory.name); if (catIdx > -1) { newCats[editingCategoryType][catIdx].name = newName; setCategories(newCats); setEditingCategory(newCats[editingCategoryType][catIdx]); } };
-        const handleEditMainCategoryIcon = async (newIcon) => { if (!editingCategory) return; const newCats = { ...categories }; const catIdx = newCats[editingCategoryType].findIndex(c => c.name === editingCategory.name); if (catIdx > -1) { newCats[editingCategoryType][catIdx].icon = newIcon; setCategories(newCats); setEditingCategory(newCats[editingCategoryType][catIdx]); } };
-        
+        const handleEditMainCategoryIcon = async (newIcon) => { if (!editingCategory) return; const newCats = { ...categories }; const catIdx = newCats[editingCategoryType].findIndex(c => c.name === editingCategory.name); if (catIdx > -1) { newCats[editingCategoryType][catIdx].icon = newIcon; setCategories(newCats); setEditingCategory(newCats[editingCategoryType][catIdx]); } }; 
         const openAccModalCorrect = (acc = null) => { if (acc) { setEditTarget(acc); setAccForm({ name: acc.name, type: acc.type, currency: acc.currency || 'TWD', initialBalance: acc.initialBalance || '', includeInTotal: acc.includeInTotal !== false, closingDay: acc.closingDay || '27', paymentDueDay: acc.paymentDueDay || '15', autoPaymentAccount: acc.autoPaymentAccount || '', holidayAdjustment: acc.holidayAdjustment || 'defer', autoPayment: acc.autoPayment || false }); } else { setEditTarget(null); setAccForm({ name: '', type: 'cash', currency: 'TWD', initialBalance: '', includeInTotal: true, closingDay: '27', paymentDueDay: '15', autoPaymentAccount: '', holidayAdjustment: 'defer', autoPayment: false }); } setModal('acc'); };
-
         const handleExport = () => {
-            if (transactions.length === 0) {
-                alert("目前沒有交易紀錄可匯出");
-                return;
-            }
+                if (transactions.length === 0) {
+                    alert("目前沒有交易紀錄可匯出");
+                    return;
+                }
 
-            const data = transactions.map(t => {
-                const acc = accounts.find(a => a.id === t.accountId);
-                const toAcc = t.toAccountId ? accounts.find(a => a.id === t.toAccountId) : null;
+                // 1. 彈出視窗詢問使用者要匯出哪一年
+                const currentYear = new Date().getFullYear().toString();
+                const exportYear = window.prompt("請輸入要匯出的年份 (例如: 2024)\n若要匯出「全部紀錄」，請清空輸入框並按確定：", currentYear);
+
+                // 如果使用者按取消，就中止
+                if (exportYear === null) return;
+
+                // 2. 根據輸入的年份過濾資料
+                const filteredTransactions = exportYear.trim() !== "" 
+                    ? transactions.filter(t => String(t.date).startsWith(exportYear.trim()))
+                    : transactions;
+
+                if (filteredTransactions.length === 0) {
+                    alert(`找不到 ${exportYear} 年的交易紀錄`);
+                    return;
+                }
+
+                // 3. 整理資料格式
+                const data = filteredTransactions.map(t => {
+                    const acc = accounts.find(a => a.id === t.accountId);
+                    const toAcc = t.toAccountId ? accounts.find(a => a.id === t.toAccountId) : null;
+                    
+                    let typeName = '支出';
+                    if (t.type === 'income') typeName = '收入';
+                    else if (t.type === 'transfer') typeName = '轉帳';
+                    else if (t.type === 'advance') typeName = '代墊';
+                    else if (t.type === 'repayment') typeName = '還款';
+
+                    return {
+                        '日期': t.date,
+                        '類型': typeName,
+                        '金額': parseFloat(t.amount),
+                        '主類別': t.category,
+                        '子類別': t.subCategory || '',
+                        '帳戶': acc ? acc.name : '未知',
+                        '轉入帳戶': toAcc ? toAcc.name : '',
+                        '轉入金額': t.toAmount || '',
+                        '備註': t.note || '',
+                        '代墊對象': t.debtor || ''
+                    };
+                });
+
+                // 4. 建立 Excel
+                const wb = XLSX.utils.book_new();
+                const ws = XLSX.utils.json_to_sheet(data);
                 
-                let typeName = '支出';
-                if (t.type === 'income') typeName = '收入';
-                else if (t.type === 'transfer') typeName = '轉帳';
-                else if (t.type === 'advance') typeName = '代墊';
-                else if (t.type === 'repayment') typeName = '還款';
+                const wscols = [
+                    {wch: 12}, {wch: 6}, {wch: 10}, {wch: 10}, {wch: 10}, 
+                    {wch: 15}, {wch: 15}, {wch: 10}, {wch: 20}, {wch: 10}
+                ];
+                ws['!cols'] = wscols;
 
-                return {
-                    '日期': t.date,
-                    '類型': typeName,
-                    '金額': parseFloat(t.amount),
-                    '主類別': t.category,
-                    '子類別': t.subCategory || '',
-                    '帳戶': acc ? acc.name : '未知',
-                    '轉入帳戶': toAcc ? toAcc.name : '',
-                    '轉入金額': t.toAmount || '',
-                    '備註': t.note || '',
-                    '代墊對象': t.debtor || ''
-                };
-            });
-
-            const wb = XLSX.utils.book_new();
-            const ws = XLSX.utils.json_to_sheet(data);
-            
-            const wscols = [
-                {wch: 12}, // 日期
-                {wch: 6},  // 類型
-                {wch: 10}, // 金額
-                {wch: 10}, // 主類別
-                {wch: 10}, // 子類別
-                {wch: 15}, // 帳戶
-                {wch: 15}, // 轉入帳戶
-                {wch: 10}, // 轉入金額
-                {wch: 20}, // 備註
-                {wch: 10}  // 代墊對象
-            ];
-            ws['!cols'] = wscols;
-
-            XLSX.utils.book_append_sheet(wb, ws, "交易紀錄");
-            XLSX.writeFile(wb, `雲端帳本備份_${getLocalToday()}.xlsx`);
-        };
+                XLSX.utils.book_append_sheet(wb, ws, "交易紀錄");
+                
+                // 根據匯出條件命名檔案
+                const fileNamePrefix = exportYear.trim() !== "" ? `${exportYear}年` : '全部';
+                XLSX.writeFile(wb, `雲端帳本_${fileNamePrefix}_${getLocalToday()}.xlsx`);
+        }; // ✅ 確保只有這一個結束括號
 
         const handleImportClick = () => { if (fileInputRef.current) fileInputRef.current.click(); };
-
-
         const handleImportFile = async (e) => {
             const file = e.target.files[0];
             if (!file) return;
