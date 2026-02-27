@@ -1008,11 +1008,29 @@
                                                                 <div className="flex items-center gap-3">
                                                                     <div className={`p-2 rounded-lg ${tx.displayType==='income'?'bg-emerald-100 text-emerald-600': tx.displayType==='expense'?'bg-rose-100 text-rose-600':'bg-stone-100 text-stone-600'}`}><Icon name={getCategoryIcon(tx.category, tx.type)} size={18}/></div>
                                                                     <div>
-                                                                        <p className="font-bold text-sm text-stone-800">
+                                                                        <p className="font-bold text-sm text-stone-800 flex items-center flex-wrap gap-1">
                                                                             {tx.type === 'advance' ? `代墊: ${tx.debtor}` : (tx.category || '未分類')}
-                                                                            {tx.subCategory && <span className="text-xs text-stone-400 ml-1">({tx.subCategory})</span>}
+                                                                            {tx.subCategory && <span className="text-xs text-stone-400">({tx.subCategory})</span>}
+                                                                            
+                                                                            {/* --- 新增：智慧代墊狀態標籤 --- */}
+                                                                            {tx.type === 'advance' && (() => {
+                                                                                const adv = stats.advanceMap[tx.id];
+                                                                                if (!adv) return null;
+                                                                                // 判斷是否已經還清 (容許 0.1 的浮點數誤差)
+                                                                                const isCleared = adv.remaining <= 0.1 || adv.isSettled;
+                                                                                return isCleared ? (
+                                                                                    <span className="text-[10px] bg-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded font-bold shadow-sm">
+                                                                                        ✅ 已收清
+                                                                                    </span>
+                                                                                ) : (
+                                                                                    <span className="text-[10px] bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded font-bold shadow-sm">
+                                                                                        待收 ${safeNum(adv.remaining)}
+                                                                                    </span>
+                                                                                );
+                                                                            })()}
+                                                                            {/* --------------------------------- */}
                                                                         </p>
-                                                                        {tx.note && <p className="text-xs text-stone-500">{tx.note}</p>}
+                                                                        {tx.note && <p className="text-xs text-stone-500 mt-0.5">{tx.note}</p>}
                                                                     </div>
                                                                 </div>
                                                                 <div className="text-right">
