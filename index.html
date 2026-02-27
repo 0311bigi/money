@@ -497,10 +497,6 @@
                 
                 if (!breakdown[cat].subs[sub]) breakdown[cat].subs[sub] = 0;
                 breakdown[cat].subs[sub] += baseAmt;
-                breakdown[cat].txs.push(t);
-                
-                if (!breakdown[cat].subs[sub]) breakdown[cat].subs[sub] = 0;
-                breakdown[cat].subs[sub] += amt;
             });
 
             const chartData = Object.entries(breakdown).map(([name, data], index) => {
