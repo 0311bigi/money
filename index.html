@@ -149,8 +149,8 @@
         
         const [txForm, setTxForm] = useState({ type:'expense', amount:'', toAmount:'', category:'', subCategory:'', accountId:'', toAccountId:'', debtor:'', date:getLocalToday(), note:'', currency:'TWD' });
         const [editingTx, setEditingTx] = useState(null);
-        const [accForm, setAccForm] = useState({ name:'', type:'cash', currency:'TWD', initialBalance:'', includeInTotal: true });
-        const [recForm, setRecForm] = useState({ name:'', type:'expense', amount:'', day:1 });
+        const [accForm, setAccForm] = useState({ name:'', type:'cash', currency:'TWD', initialBalance:'', includeInTotal: true, isArchived: false });
+        const [showArchived, setShowArchived] = useState(false); // 控制停用區塊是否折疊        const [recForm, setRecForm] = useState({ name:'', type:'expense', amount:'', day:1 });
         const [newCatForm, setNewCatForm] = useState({ name:'', icon:'tag', type:'expense' });
         const [retireForm, setRetireForm] = useState({});
         
@@ -825,8 +825,7 @@
         const changeDetailMonthStep = (step) => { const [y, m] = accountDetailMonth.split('-').map(Number); const date = new Date(y, m - 1 + step, 1); setAccountDetailMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`); };
         const handleEditMainCategoryName = async (newName) => { if (!newName || !editingCategory) return; const newCats = { ...categories }; const catIdx = newCats[editingCategoryType].findIndex(c => c.name === editingCategory.name); if (catIdx > -1) { newCats[editingCategoryType][catIdx].name = newName; setCategories(newCats); setEditingCategory(newCats[editingCategoryType][catIdx]); } };
         const handleEditMainCategoryIcon = async (newIcon) => { if (!editingCategory) return; const newCats = { ...categories }; const catIdx = newCats[editingCategoryType].findIndex(c => c.name === editingCategory.name); if (catIdx > -1) { newCats[editingCategoryType][catIdx].icon = newIcon; setCategories(newCats); setEditingCategory(newCats[editingCategoryType][catIdx]); } }; 
-        const openAccModalCorrect = (acc = null) => { if (acc) { setEditTarget(acc); setAccForm({ name: acc.name, type: acc.type, currency: acc.currency || 'TWD', initialBalance: acc.initialBalance || '', includeInTotal: acc.includeInTotal !== false, closingDay: acc.closingDay || '27', paymentDueDay: acc.paymentDueDay || '15', autoPaymentAccount: acc.autoPaymentAccount || '', holidayAdjustment: acc.holidayAdjustment || 'defer', autoPayment: acc.autoPayment || false }); } else { setEditTarget(null); setAccForm({ name: '', type: 'cash', currency: 'TWD', initialBalance: '', includeInTotal: true, closingDay: '27', paymentDueDay: '15', autoPaymentAccount: '', holidayAdjustment: 'defer', autoPayment: false }); } setModal('acc'); };
-        const handleExport = () => {
+        const openAccModalCorrect = (acc = null) => { if (acc) { setEditTarget(acc); setAccForm({ name: acc.name, type: acc.type, currency: acc.currency || 'TWD', initialBalance: acc.initialBalance || '', includeInTotal: acc.includeInTotal !== false, isArchived: acc.isArchived || false, closingDay: acc.closingDay || '27', paymentDueDay: acc.paymentDueDay || '15', autoPaymentAccount: acc.autoPaymentAccount || '', holidayAdjustment: acc.holidayAdjustment || 'defer', autoPayment: acc.autoPayment || false }); } else { setEditTarget(null); setAccForm({ name: '', type: 'cash', currency: 'TWD', initialBalance: '', includeInTotal: true, isArchived: false, closingDay: '27', paymentDueDay: '15', autoPaymentAccount: '', holidayAdjustment: 'defer', autoPayment: false }); } setModal('acc'); };        const handleExport = () => {
                 if (transactions.length === 0) {
                     alert("目前沒有交易紀錄可匯出");
                     return;
@@ -1135,55 +1134,98 @@
                                         <p className="text-xs text-stone-400 flex justify-between"><span>目標 ${safeNum(Math.round(retireProgress.target/10000))} 萬</span><span>剩 {retireProgress.years} 年</span></p>
                                         <div className={`mt-3 p-2 rounded-lg bg-white/10 text-xs flex items-start gap-2 ${retirementInsight.color}`}><Icon name={retirementInsight.icon} size={14} className="mt-0.5"/><span>{retirementInsight.text}</span></div>
                                     </div>
-                                    <div className="grid gap-3">{accounts.map((acc, index) => (
-                                        <div key={acc.id} onClick={() => { setViewingAccount(acc); setAccountDetailMonth(currentLedgerMonth); }} className="bg-white p-4 rounded-xl shadow-sm border border-stone-100 relative cursor-pointer hover:shadow-md transition-shadow" draggable onDragStart={() => (dragItem.current = index)} onDragEnter={() => (dragOverItem.current = index)} onDragEnd={handleSort} onDragOver={(e) => e.preventDefault()}>
-                                            <div className="absolute top-1/2 right-4 -translate-y-1/2 text-stone-300 pointer-events-none"><Icon name="chevron-right" size={20} /></div>
-                                            <div className="absolute top-3 right-3 flex gap-2" onClick={e => e.stopPropagation()}>
-                                                <button onClick={()=>{setEditTarget(acc); openAccModalCorrect(acc);}} className="text-stone-400 hover:text-rose-500 p-1"><Icon name="edit-2" size={16}/></button>
-                                                <button onClick={()=>deleteData('accounts', acc.id)} className="text-stone-400 hover:text-rose-600 p-1"><Icon name="trash-2" size={16}/></button>
-                                            </div>
-                                            <div className="flex gap-3 items-center mb-2">
-                                                <div className="text-stone-300 cursor-move" onClick={e => e.stopPropagation()}><Icon name="grip-vertical" size={16}/></div>
-                                                <div className={`p-2 rounded-lg ${ACCOUNT_TYPES[acc.type]?.color || 'bg-stone-100 text-stone-600'}`}><Icon name={ACCOUNT_TYPES[acc.type]?.iconName || 'wallet'} size={18}/></div>
-                                                <div>
-                                                 <h3 className="font-bold text-stone-700 flex items-center gap-2">
-                                                     {acc.name}
-                                                     {/* 動態負債標籤 */}
-                                                     {(acc.type === 'credit' || acc.type === 'payable') && <span className="text-[10px] bg-rose-50 text-rose-500 border border-rose-100 px-1.5 py-0.5 rounded font-bold">負債</span>}
-                                                 </h3>
-                                                 {acc.includeInTotal === false && <span className="text-[10px] bg-stone-100 text-stone-400 px-1.5 py-0.5 rounded mt-0.5 inline-block">不計入</span>}
-                                             </div>
-                                         </div>
-                                         {/* 智慧餘額顯示：負債且餘額小於0時，數字變紅且把負號拉到貨幣符號前面 */}
-                                         {(() => {
-                                             const bal = acc.marketValue || stats.bals[acc.id] || 0;
-                                             const isDebt = (acc.type === 'credit' || acc.type === 'payable');
-                                             return (
-                                                 <p className={`text-2xl font-black tabular-nums ml-7 ${isDebt && bal < 0 ? 'text-rose-600' : 'text-stone-800'}`}>
-                                                     {isDebt && bal < 0 ? '-' : ''}${safeNum(Math.abs(bal))} <span className="text-xs text-stone-400 font-normal">{acc.currency}</span>
-                                                 </p>
-                                             );
-                                         })()}
-                                     {acc.currency!=='TWD' && <p className="text-xs text-stone-400 font-bold tabular-nums ml-7">≈ TWD ${safeNum(Math.round((acc.marketValue || stats.bals[acc.id]||0) * (exchangeRates[acc.currency]||1)))}</p>}
-                                            {acc.type === 'invest' && (
-                                                <div className="mt-2 pt-2 border-t flex justify-between items-center text-xs ml-7 mr-6" onClick={e => e.stopPropagation()}>
-                                                    <span className="text-stone-400">成本: ${safeNum(stats.bals[acc.id])}</span>
-                                                    <button 
-                                                        onClick={(e)=>{
-                                                            e.stopPropagation(); 
-                                                            setEditTarget(acc); 
-                                                            setHoldingForm(acc.holdings || []); 
-                                                            setNewMarketValue(acc.marketValue || ''); 
-                                                            setModal('market');
-                                                        }} 
-                                                        className="text-rose-500 font-bold bg-rose-50 px-2 py-1 rounded"
-                                                    >
-                                                        調整市值
-                                                    </button>
+                                     {/* --- 修改開始：區分啟用與停用帳戶 --- */}
+                                    {(() => {
+                                        const activeAccounts = accounts.filter(a => !a.isArchived);
+                                        const archivedAccounts = accounts.filter(a => a.isArchived);
+                                        return (
+                                            <>
+                                                <div className="grid gap-3">
+                                                    {activeAccounts.map((acc) => {
+                                                        const index = accounts.findIndex(a => a.id === acc.id);
+                                                        return (
+                                                            <div key={acc.id} onClick={() => { setViewingAccount(acc); setAccountDetailMonth(currentLedgerMonth); }} className="bg-white p-4 rounded-xl shadow-sm border border-stone-100 relative cursor-pointer hover:shadow-md transition-shadow" draggable onDragStart={() => (dragItem.current = index)} onDragEnter={() => (dragOverItem.current = index)} onDragEnd={handleSort} onDragOver={(e) => e.preventDefault()}>
+                                                                <div className="absolute top-1/2 right-4 -translate-y-1/2 text-stone-300 pointer-events-none"><Icon name="chevron-right" size={20} /></div>
+                                                                <div className="absolute top-3 right-3 flex gap-2" onClick={e => e.stopPropagation()}>
+                                                                    <button onClick={()=>{setEditTarget(acc); openAccModalCorrect(acc);}} className="text-stone-400 hover:text-rose-500 p-1"><Icon name="edit-2" size={16}/></button>
+                                                                    <button onClick={()=>deleteData('accounts', acc.id)} className="text-stone-400 hover:text-rose-600 p-1"><Icon name="trash-2" size={16}/></button>
+                                                                </div>
+                                                                <div className="flex gap-3 items-center mb-2">
+                                                                    <div className="text-stone-300 cursor-move" onClick={e => e.stopPropagation()}><Icon name="grip-vertical" size={16}/></div>
+                                                                    <div className={`p-2 rounded-lg ${ACCOUNT_TYPES[acc.type]?.color || 'bg-stone-100 text-stone-600'}`}><Icon name={ACCOUNT_TYPES[acc.type]?.iconName || 'wallet'} size={18}/></div>
+                                                                    <div>
+                                                                        <h3 className="font-bold text-stone-700 flex items-center gap-2">
+                                                                            {acc.name}
+                                                                            {(acc.type === 'credit' || acc.type === 'payable') && <span className="text-[10px] bg-rose-50 text-rose-500 border border-rose-100 px-1.5 py-0.5 rounded font-bold">負債</span>}
+                                                                        </h3>
+                                                                        {acc.includeInTotal === false && <span className="text-[10px] bg-stone-100 text-stone-400 px-1.5 py-0.5 rounded mt-0.5 inline-block">不計入</span>}
+                                                                    </div>
+                                                                </div>
+                                                                {(() => {
+                                                                    const bal = acc.marketValue || stats.bals[acc.id] || 0;
+                                                                    const isDebt = (acc.type === 'credit' || acc.type === 'payable');
+                                                                    return (
+                                                                        <p className={`text-2xl font-black tabular-nums ml-7 ${isDebt && bal < 0 ? 'text-rose-600' : 'text-stone-800'}`}>
+                                                                            {isDebt && bal < 0 ? '-' : ''}${safeNum(Math.abs(bal))} <span className="text-xs text-stone-400 font-normal">{acc.currency}</span>
+                                                                        </p>
+                                                                    );
+                                                                })()}
+                                                                {acc.currency!=='TWD' && <p className="text-xs text-stone-400 font-bold tabular-nums ml-7">≈ TWD ${safeNum(Math.round((acc.marketValue || stats.bals[acc.id]||0) * (exchangeRates[acc.currency]||1)))}</p>}
+                                                                {acc.type === 'invest' && (
+                                                                    <div className="mt-2 pt-2 border-t flex justify-between items-center text-xs ml-7 mr-6" onClick={e => e.stopPropagation()}>
+                                                                        <span className="text-stone-400">成本: ${safeNum(stats.bals[acc.id])}</span>
+                                                                        <button onClick={(e)=>{ e.stopPropagation(); setEditTarget(acc); setHoldingForm(acc.holdings || []); setNewMarketValue(acc.marketValue || ''); setModal('market'); }} className="text-rose-500 font-bold bg-rose-50 px-2 py-1 rounded">調整市值</button>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+													{/* --- 修改結束 --- */}
                                                 </div>
-                                            )}
-                                        </div>
-                                    ))}</div>
+                                                
+                                                {/* 折疊的停用帳戶區塊 */}
+                                                {archivedAccounts.length > 0 && (
+                                                    <div className="mt-6">
+                                                        <button onClick={() => setShowArchived(!showArchived)} className="flex items-center gap-2 text-stone-500 font-bold text-sm w-full justify-between p-3 bg-stone-200/50 hover:bg-stone-200 rounded-xl transition-colors">
+                                                            <span>停用帳戶 ({archivedAccounts.length})</span>
+                                                            <Icon name={showArchived ? "chevron-up" : "chevron-down"} size={16} />
+                                                        </button>
+                                                        {showArchived && (
+                                                            <div className="grid gap-3 mt-3 opacity-60">
+                                                                {archivedAccounts.map((acc) => (
+                                                                    <div key={acc.id} onClick={() => { setViewingAccount(acc); setAccountDetailMonth(currentLedgerMonth); }} className="bg-stone-100 p-4 rounded-xl border border-stone-200 relative cursor-pointer">
+                                                                        <div className="absolute top-1/2 right-4 -translate-y-1/2 text-stone-300 pointer-events-none"><Icon name="chevron-right" size={20} /></div>
+                                                                        <div className="absolute top-3 right-3 flex gap-2" onClick={e => e.stopPropagation()}>
+                                                                            <button onClick={()=>{setEditTarget(acc); openAccModalCorrect(acc);}} className="text-stone-400 hover:text-stone-600 p-1"><Icon name="edit-2" size={16}/></button>
+                                                                        </div>
+                                                                        <div className="flex gap-3 items-center mb-2">
+                                                                            <div className="w-4"></div> {/* 佔位符，因為停用的不給拖曳 */}
+                                                                            <div className={`p-2 rounded-lg ${ACCOUNT_TYPES[acc.type]?.color || 'bg-stone-200 text-stone-500'} grayscale`}><Icon name={ACCOUNT_TYPES[acc.type]?.iconName || 'wallet'} size={18}/></div>
+                                                                            <div>
+                                                                                <h3 className="font-bold text-stone-500 line-through decoration-stone-300 flex items-center gap-2">
+                                                                                    {acc.name}
+                                                                                </h3>
+                                                                            </div>
+                                                                        </div>
+                                                                        {(() => {
+                                                                            const bal = acc.marketValue || stats.bals[acc.id] || 0;
+                                                                            const isDebt = (acc.type === 'credit' || acc.type === 'payable');
+                                                                            return (
+                                                                                <p className={`text-2xl font-black tabular-nums ml-10 ${isDebt && bal < 0 ? 'text-stone-600' : 'text-stone-500'}`}>
+                                                                                    {isDebt && bal < 0 ? '-' : ''}${safeNum(Math.abs(bal))} <span className="text-xs text-stone-400 font-normal">{acc.currency}</span>
+                                                                                </p>
+                                                                            );
+                                                                        })()}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </>
+                                        );
+                                    })()}
+
                                 </div>
                             )}
 
@@ -1384,10 +1426,8 @@
                                 <div className="space-y-4">
                                     {txForm.type === 'transfer' ? (
                                         <div className="flex flex-col gap-2 bg-stone-50 p-4 rounded-xl border border-stone-100">
-                                            <div className="w-full"><label className="text-xs text-stone-500 font-bold ml-1 mb-1 block">從 轉出</label><select className="w-full bg-white p-3 rounded-lg font-bold text-stone-800 border border-stone-200 shadow-sm outline-none focus:border-blue-400" value={txForm.accountId} onChange={e=>setTxForm({...txForm, accountId:e.target.value})}><option value="">選擇帳戶</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}</select></div>
-                                            <div className="flex justify-center -my-1 z-10 relative"><div className="bg-stone-200 rounded-full p-1 border-2 border-white"><Icon name="arrow-down" size={16} className="text-stone-500"/></div></div>
-                                            <div className="w-full"><label className="text-xs text-stone-500 font-bold ml-1 mb-1 block">轉入 至</label><select className="w-full bg-white p-3 rounded-lg font-bold text-stone-800 border border-stone-200 shadow-sm outline-none focus:border-blue-400" value={txForm.toAccountId} onChange={e=>setTxForm({...txForm, toAccountId:e.target.value})}><option value="">選擇帳戶</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}</select></div>
-                                            {(() => {
+                                        <div className="w-full"><label className="text-xs text-stone-500 font-bold ml-1 mb-1 block">從 轉出</label><select className="w-full bg-white p-3 rounded-lg font-bold text-stone-800 border border-stone-200 shadow-sm outline-none focus:border-blue-400" value={txForm.accountId} onChange={e=>setTxForm({...txForm, accountId:e.target.value})}><option value="">選擇帳戶</option>{accounts.filter(a => !a.isArchived || a.id === txForm.accountId).map(a=><option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}</select></div>                                            <div className="flex justify-center -my-1 z-10 relative"><div className="bg-stone-200 rounded-full p-1 border-2 border-white"><Icon name="arrow-down" size={16} className="text-stone-500"/></div></div>
+                                        <div className="w-full"><label className="text-xs text-stone-500 font-bold ml-1 mb-1 block">轉入 至</label><select className="w-full bg-white p-3 rounded-lg font-bold text-stone-800 border border-stone-200 shadow-sm outline-none focus:border-blue-400" value={txForm.toAccountId} onChange={e=>setTxForm({...txForm, toAccountId:e.target.value})}><option value="">選擇帳戶</option>{accounts.filter(a => !a.isArchived || a.id === txForm.toAccountId).map(a=><option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}</select></div>                                            {(() => {
                                                 const sourceAcc = accounts.find(a => a.id === txForm.accountId);
                                                 const targetAcc = accounts.find(a => a.id === txForm.toAccountId);
                                                 const isDiffCurrency = sourceAcc && targetAcc && sourceAcc.currency !== targetAcc.currency;
@@ -1401,14 +1441,15 @@
                                                 <button onClick={()=>{setEditingCategoryType(txForm.type); setModal('cat');}} className="px-3 bg-stone-100 rounded-lg text-stone-500 hover:bg-stone-200 flex items-center justify-center" title="管理類別"><Icon name="plus" size={20}/></button>
                                             </div>
                                             {categories[txForm.type].find(c=>c.name===txForm.category)?.subs?.length > 0 && (<div className="flex flex-wrap gap-2">{categories[txForm.type].find(c=>c.name===txForm.category).subs.map(s=>(<button key={s} onClick={()=>setTxForm({...txForm, subCategory:s})} className={`px-3 py-1 rounded-full text-xs font-bold border transition-colors ${txForm.subCategory===s?'bg-stone-800 text-white':'bg-white text-stone-500'}`}>{s}</button>))}</div>)}
-                                {!isOffset ? (
+                                    {!isOffset ? (
                                     <div className="w-full">
                                         <select className="w-full bg-stone-50 p-3 rounded-lg font-bold text-stone-700" value={txForm.accountId} onChange={e=>setTxForm({...txForm, accountId:e.target.value})}>
                                             <option value="">選擇帳戶</option>
-                                            {accounts.map(a=><option key={a.id} value={a.id}>{a.name} {a.currency !== 'TWD' ? `(${a.currency})` : ''}</option>)}
+                                            {/* 👇 這裡加上了 .filter(a => !a.isArchived || a.id === txForm.accountId) */}
+                                            {accounts.filter(a => !a.isArchived || a.id === txForm.accountId).map(a=><option key={a.id} value={a.id}>{a.name} {a.currency !== 'TWD' ? `(${a.currency})` : ''}</option>)}
                                         </select>
                                         
-                                        {/* 新增：外幣帳戶匯率提示與換算金額 */}
+                                        {/* 新增：外幣帳戶匯率提示與換算金額 (維持不變) */}
                                         {(() => {
                                             const acc = accounts.find(a => a.id === txForm.accountId);
                                             if (acc && acc.currency !== 'TWD') {
@@ -1445,8 +1486,7 @@
                             </div>
                         </div>
                     )}
-                    {modal === 'acc' && (<div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4"><div className="bg-white w-full max-w-sm p-6 rounded-2xl"><h3 className="font-bold text-xl mb-4 text-stone-800">{editTarget ? '編輯帳戶' : '新增帳戶'}</h3><input className="w-full p-3 bg-stone-50 rounded-lg mb-4 border border-stone-200" placeholder="名稱" value={accForm.name} onChange={e=>setAccForm({...accForm, name:e.target.value})}/><select className="w-full p-3 bg-stone-50 rounded-lg mb-4 border border-stone-200" value={accForm.type} onChange={e=>setAccForm({...accForm, type:e.target.value})}>{Object.entries(ACCOUNT_TYPES).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select><input type="number" step="0.01" className="w-full p-3 bg-stone-50 rounded-lg mb-4 border border-stone-200 tabular-nums" placeholder="初始餘額" value={accForm.initialBalance} onChange={e=>setAccForm({...accForm, initialBalance:e.target.value})}/><div className="flex gap-2 mb-4"><span className="p-3 bg-stone-100 rounded text-sm text-stone-500">幣別</span><select className="flex-1 p-3 bg-stone-50 rounded border border-stone-200" value={accForm.currency} onChange={e=>setAccForm({...accForm, currency:e.target.value})}>{CURRENCIES.map(c=><option key={c} value={c}>{c}</option>)}</select></div><label className="flex items-center gap-3 p-3 bg-stone-50 rounded-lg mb-6 cursor-pointer border border-stone-200"><div className={`w-5 h-5 rounded-md flex items-center justify-center border ${accForm.includeInTotal ? 'bg-rose-500 border-rose-500 text-white' : 'bg-white border-stone-300'}`}>{accForm.includeInTotal && <Icon name="check" size={14} />}</div><input type="checkbox" className="hidden" checked={accForm.includeInTotal} onChange={e=>setAccForm({...accForm, includeInTotal:e.target.checked})} /><span className="text-sm font-bold text-stone-700">計入總資產</span></label><button onClick={handleAccSubmit} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold shadow-lg">儲存</button><button onClick={()=>setModal(null)} className="w-full mt-2 text-stone-400 py-2">取消</button></div></div>)}
-                    {modal === 'recurring' && (<div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4"><div className="bg-white w-full max-w-sm p-6 rounded-2xl"><h3 className="font-bold text-xl mb-4 text-stone-800">固定收支設定</h3><input className="w-full p-3 bg-stone-50 rounded-lg mb-3 border border-stone-200" placeholder="名稱 (例如: 房租)" value={recForm.name} onChange={e=>setRecForm({...recForm, name:e.target.value})}/><div className="flex gap-2 mb-3"><select className="p-3 bg-stone-50 rounded-lg border border-stone-200 font-bold text-stone-700" value={recForm.type} onChange={e=>setRecForm({...recForm, type:e.target.value})}><option value="expense">支出</option><option value="income">收入</option></select><div className="flex-1 flex items-center bg-stone-50 rounded-lg border border-stone-200 px-3"><span className="text-stone-500 text-sm mr-2">每月</span><input type="number" min="1" max="31" className="flex-1 bg-transparent font-bold outline-none tabular-nums" value={recForm.day} onChange={e=>setRecForm({...recForm, day:parseInt(e.target.value)})}/><span className="text-stone-500 text-sm ml-2">日</span></div></div><input type="number" step="0.01" className="w-full p-3 bg-stone-50 rounded-lg mb-3 border border-stone-200 tabular-nums font-bold" placeholder="金額" value={recForm.amount} onChange={e=>setRecForm({...recForm, amount:e.target.value})}/><select className="w-full p-3 bg-stone-50 rounded-lg mb-6 border border-stone-200" value={recForm.accountId} onChange={e=>setRecForm({...recForm, accountId:e.target.value})}><option value="">選擇扣款/入帳帳戶 (可選)</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select><button onClick={handleRecurringSave} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold shadow-lg">儲存設定</button><button onClick={()=>setModal(null)} className="w-full mt-2 text-stone-400 py-2">取消</button></div></div>)}
+                    {modal === 'acc' && (<div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4"><div className="bg-white w-full max-w-sm p-6 rounded-2xl"><h3 className="font-bold text-xl mb-4 text-stone-800">{editTarget ? '編輯帳戶' : '新增帳戶'}</h3><input className="w-full p-3 bg-stone-50 rounded-lg mb-4 border border-stone-200" placeholder="名稱" value={accForm.name} onChange={e=>setAccForm({...accForm, name:e.target.value})}/><select className="w-full p-3 bg-stone-50 rounded-lg mb-4 border border-stone-200" value={accForm.type} onChange={e=>setAccForm({...accForm, type:e.target.value})}>{Object.entries(ACCOUNT_TYPES).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select><input type="number" step="0.01" className="w-full p-3 bg-stone-50 rounded-lg mb-4 border border-stone-200 tabular-nums" placeholder="初始餘額" value={accForm.initialBalance} onChange={e=>setAccForm({...accForm, initialBalance:e.target.value})}/><div className="flex gap-2 mb-4"><span className="p-3 bg-stone-100 rounded text-sm text-stone-500">幣別</span><select className="flex-1 p-3 bg-stone-50 rounded border border-stone-200" value={accForm.currency} onChange={e=>setAccForm({...accForm, currency:e.target.value})}>{CURRENCIES.map(c=><option key={c} value={c}>{c}</option>)}</select></div><label className="flex items-center gap-3 p-3 bg-stone-50 rounded-lg mb-3 cursor-pointer border border-stone-200"><div className={`w-5 h-5 rounded-md flex items-center justify-center border ${accForm.includeInTotal ? 'bg-rose-500 border-rose-500 text-white' : 'bg-white border-stone-300'}`}>{accForm.includeInTotal && <Icon name="check" size={14} />}</div><input type="checkbox" className="hidden" checked={accForm.includeInTotal} onChange={e=>setAccForm({...accForm, includeInTotal:e.target.checked})} /><span className="text-sm font-bold text-stone-700">計入總資產</span></label><label className="flex items-center gap-3 p-3 bg-stone-50 rounded-lg mb-6 cursor-pointer border border-stone-200"><div className={`w-5 h-5 rounded-md flex items-center justify-center border ${accForm.isArchived ? 'bg-stone-500 border-stone-500 text-white' : 'bg-white border-stone-300'}`}>{accForm.isArchived && <Icon name="check" size={14} />}</div><input type="checkbox" className="hidden" checked={accForm.isArchived} onChange={e=>setAccForm({...accForm, isArchived:e.target.checked})} /><span className="text-sm font-bold text-stone-700">停用此帳戶 (隱藏於記帳選單)</span></label><button onClick={handleAccSubmit} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold shadow-lg">儲存</button><button onClick={()=>setModal(null)} className="w-full mt-2 text-stone-400 py-2">取消</button></div></div>)}                    {modal === 'recurring' && (<div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4"><div className="bg-white w-full max-w-sm p-6 rounded-2xl"><h3 className="font-bold text-xl mb-4 text-stone-800">固定收支設定</h3><input className="w-full p-3 bg-stone-50 rounded-lg mb-3 border border-stone-200" placeholder="名稱 (例如: 房租)" value={recForm.name} onChange={e=>setRecForm({...recForm, name:e.target.value})}/><div className="flex gap-2 mb-3"><select className="p-3 bg-stone-50 rounded-lg border border-stone-200 font-bold text-stone-700" value={recForm.type} onChange={e=>setRecForm({...recForm, type:e.target.value})}><option value="expense">支出</option><option value="income">收入</option></select><div className="flex-1 flex items-center bg-stone-50 rounded-lg border border-stone-200 px-3"><span className="text-stone-500 text-sm mr-2">每月</span><input type="number" min="1" max="31" className="flex-1 bg-transparent font-bold outline-none tabular-nums" value={recForm.day} onChange={e=>setRecForm({...recForm, day:parseInt(e.target.value)})}/><span className="text-stone-500 text-sm ml-2">日</span></div></div><input type="number" step="0.01" className="w-full p-3 bg-stone-50 rounded-lg mb-3 border border-stone-200 tabular-nums font-bold" placeholder="金額" value={recForm.amount} onChange={e=>setRecForm({...recForm, amount:e.target.value})}/><select className="w-full p-3 bg-stone-50 rounded-lg mb-6 border border-stone-200" value={recForm.accountId} onChange={e=>setRecForm({...recForm, accountId:e.target.value})}><option value="">選擇扣款/入帳帳戶 (可選)</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select><button onClick={handleRecurringSave} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold shadow-lg">儲存設定</button><button onClick={()=>setModal(null)} className="w-full mt-2 text-stone-400 py-2">取消</button></div></div>)}
                     {modal === 'bookSelect' && (<div className="fixed inset-0 z-[200] bg-black/50 flex items-end justify-center p-4"><div className="bg-white w-full max-w-sm p-6 rounded-t-2xl"><h3 className="font-bold text-xl mb-4 text-stone-800">切換帳本</h3><button onClick={()=>setModal('addBook')} className="w-full py-3 bg-stone-100 rounded-xl font-bold mb-2 text-stone-600">+ 新增帳本</button>{books.map(b=><button key={b.id} onClick={()=>{setCurrentBook(b);setModal(null)}} className={`w-full py-3 text-left border-b font-bold ${currentBook.id===b.id?'text-rose-500':'text-stone-600'}`}>{b.name}</button>)}<button onClick={()=>setModal(null)} className="w-full py-3 mt-4 text-stone-400">取消</button></div></div>)}
                     {modal === 'addBook' && (<div className="fixed inset-0 z-[210] bg-black/50 flex items-center justify-center p-4"><div className="bg-white w-full max-w-sm p-6 rounded-2xl"><h3 className="font-bold text-xl mb-4 text-stone-800">新增旅遊帳本</h3><input className="w-full p-3 bg-stone-50 rounded-lg mb-4 border border-stone-200" placeholder="名稱" id="newBookName"/><button onClick={()=>{saveData('books', {name: document.getElementById('newBookName').value, currency:'TWD'});setModal(null);}} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold shadow-lg">建立</button><button onClick={()=>setModal(null)} className="w-full mt-2 text-stone-400">取消</button></div></div>)}
                     {modal === 'budget' && (<div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4"><div className="bg-white w-full max-w-sm p-6 rounded-2xl"><h3 className="font-bold text-xl mb-4 text-stone-800">設定月預算</h3><input type="number" className="w-full p-3 bg-stone-50 rounded-lg mb-4 border border-stone-200 tabular-nums" value={monthlyBudget} onChange={e=>setMonthlyBudget(e.target.value)}/><button onClick={()=>{ handleBudgetSubmit(monthlyBudget); setModal(null); }} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold shadow-lg">儲存</button><button onClick={()=>setModal(null)} className="w-full mt-2 text-stone-400">取消</button></div></div>)}
@@ -1624,8 +1664,7 @@
                         </div>
                     )}
                     {/* --- 修改結束 --- */}
-                    {modal === 'settle' && settleTargetTx && (<div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4"><div className="bg-white w-full max-w-sm p-6 rounded-2xl"><h3 className="font-bold text-xl mb-2 text-stone-800">收回代墊</h3><p className="text-stone-500 mb-4">對象: {settleTargetTx.debtor} / 金額: ${settleTargetTx.amount.toLocaleString()}</p><select className="w-full p-3 border rounded-lg mb-4" value={settleToAccount} onChange={e=>setSettleToAccount(e.target.value)}><option value="">存入帳戶</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select><button onClick={handleSettle} className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold shadow-lg">確認收款</button><button onClick={()=>setModal(null)} className="w-full mt-2 text-stone-400">取消</button></div></div>)}
-                    {error && (<div className="fixed inset-0 z-[300] bg-black/50 flex items-center justify-center p-6"><div className="bg-white p-6 rounded-2xl max-w-xs w-full shadow-2xl"><h3 className="font-bold text-lg text-rose-500 mb-2">{error.title}</h3><p className="text-sm text-stone-600 mb-4 whitespace-pre-wrap">{error.message}</p><button onClick={()=>setError(null)} className="w-full bg-stone-800 text-white py-2 rounded-lg">OK</button></div></div>)}
+                    {modal === 'settle' && settleTargetTx && (<div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4"><div className="bg-white w-full max-w-sm p-6 rounded-2xl"><h3 className="font-bold text-xl mb-2 text-stone-800">收回代墊</h3><p className="text-stone-500 mb-4">對象: {settleTargetTx.debtor} / 金額: ${settleTargetTx.amount.toLocaleString()}</p><select className="w-full p-3 border rounded-lg mb-4" value={settleToAccount} onChange={e=>setSettleToAccount(e.target.value)}><option value="">存入帳戶</option>{accounts.filter(a => !a.isArchived).map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select><button onClick={handleSettle} className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold shadow-lg">確認收款</button><button onClick={()=>setModal(null)} className="w-full mt-2 text-stone-400">取消</button></div></div>)}                    {error && (<div className="fixed inset-0 z-[300] bg-black/50 flex items-center justify-center p-6"><div className="bg-white p-6 rounded-2xl max-w-xs w-full shadow-2xl"><h3 className="font-bold text-lg text-rose-500 mb-2">{error.title}</h3><p className="text-sm text-stone-600 mb-4 whitespace-pre-wrap">{error.message}</p><button onClick={()=>setError(null)} className="w-full bg-stone-800 text-white py-2 rounded-lg">OK</button></div></div>)}
                 </div>
             );
         }
