@@ -1134,7 +1134,7 @@
                                         <p className="text-xs text-stone-400 flex justify-between"><span>目標 ${safeNum(Math.round(retireProgress.target/10000))} 萬</span><span>剩 {retireProgress.years} 年</span></p>
                                         <div className={`mt-3 p-2 rounded-lg bg-white/10 text-xs flex items-start gap-2 ${retirementInsight.color}`}><Icon name={retirementInsight.icon} size={14} className="mt-0.5"/><span>{retirementInsight.text}</span></div>
                                     </div>
-                                     {/* --- 修改開始：區分啟用與停用帳戶 --- */}
+{/* --- 修改開始：區分啟用與停用帳戶 --- */}
                                     {(() => {
                                         const activeAccounts = accounts.filter(a => !a.isArchived);
                                         const archivedAccounts = accounts.filter(a => a.isArchived);
@@ -1162,7 +1162,8 @@
                                                                     </div>
                                                                 </div>
                                                                 {(() => {
-                                                                    const bal = acc.marketValue || stats.bals[acc.id] || 0;
+                                                                    // 💡 改動 1：大字固定顯示帳面成本 (stats.bals)，方便完美對帳
+                                                                    const bal = stats.bals[acc.id] || 0;
                                                                     const isDebt = (acc.type === 'credit' || acc.type === 'payable');
                                                                     return (
                                                                         <p className={`text-2xl font-black tabular-nums ml-7 ${isDebt && bal < 0 ? 'text-rose-600' : 'text-stone-800'}`}>
@@ -1170,18 +1171,27 @@
                                                                         </p>
                                                                     );
                                                                 })()}
-                                                                {acc.currency!=='TWD' && <p className="text-xs text-stone-400 font-bold tabular-nums ml-7">≈ TWD ${safeNum(Math.round((acc.marketValue || stats.bals[acc.id]||0) * (exchangeRates[acc.currency]||1)))}</p>}
+                                                                {/* 外幣也一律用成本去換算台幣 */}
+                                                                {acc.currency!=='TWD' && <p className="text-xs text-stone-400 font-bold tabular-nums ml-7">≈ TWD ${safeNum(Math.round((stats.bals[acc.id]||0) * (exchangeRates[acc.currency]||1)))}</p>}
                                                                 {acc.type === 'invest' && (
                                                                     <div className="mt-2 pt-2 border-t flex justify-between items-center text-xs ml-7 mr-6" onClick={e => e.stopPropagation()}>
-                                                                        <span className="text-stone-400">成本: ${safeNum(stats.bals[acc.id])}</span>
-                                                                        <button onClick={(e)=>{ e.stopPropagation(); setEditTarget(acc); setHoldingForm(acc.holdings || []); setNewMarketValue(acc.marketValue || ''); setModal('market'); }} className="text-rose-500 font-bold bg-rose-50 px-2 py-1 rounded">調整市值</button>
+                                                                        {/* 💡 改動 2：下方小字改為顯示市值，並附上損益差額彩蛋 */}
+                                                                        <span className="text-stone-400 flex items-center gap-1 font-bold">
+                                                                            市值: ${safeNum(acc.marketValue || stats.bals[acc.id])}
+                                                                            {acc.marketValue && acc.marketValue !== stats.bals[acc.id] && (
+                                                                                <span className={acc.marketValue > stats.bals[acc.id] ? 'text-emerald-500' : 'text-rose-500'}>
+                                                                                    ({acc.marketValue > stats.bals[acc.id] ? '+' : ''}{safeNum(acc.marketValue - stats.bals[acc.id])})
+                                                                                </span>
+                                                                            )}
+                                                                        </span>
+                                                                        <button onClick={(e)=>{ e.stopPropagation(); setEditTarget(acc); setHoldingForm(acc.holdings || []); setNewMarketValue(acc.marketValue || ''); setModal('market'); }} className="text-rose-500 font-bold bg-rose-50 px-2 py-1 rounded hover:bg-rose-100 transition-colors">調整市值</button>
                                                                     </div>
                                                                 )}
-                                                            </div>
+                                                            </div> // ✅ 這裡關閉了單個帳戶卡片的 div
                                                         );
                                                     })}
-													{/* --- 修改結束 --- */}
-                                                </div>
+                                                </div> // ✅ 這裡關閉了 grid 的 div
+                                                {/* 下面接著是 archivedAccounts 的區塊 (維持你原本的) */}
                                                 
                                                 {/* 折疊的停用帳戶區塊 */}
                                                 {archivedAccounts.length > 0 && (
@@ -1208,7 +1218,8 @@
                                                                             </div>
                                                                         </div>
                                                                         {(() => {
-                                                                            const bal = acc.marketValue || stats.bals[acc.id] || 0;
+                                                                            // 💡 停用區也改為固定顯示帳面成本
+                                                                            const bal = stats.bals[acc.id] || 0;
                                                                             const isDebt = (acc.type === 'credit' || acc.type === 'payable');
                                                                             return (
                                                                                 <p className={`text-2xl font-black tabular-nums ml-10 ${isDebt && bal < 0 ? 'text-stone-600' : 'text-stone-500'}`}>
@@ -1672,4 +1683,3 @@
     </script>
 </body>
 </html>
-
