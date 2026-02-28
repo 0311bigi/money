@@ -1,0 +1,21 @@
+{
+  "name": "money",
+  "short_name": "money",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#ff8787",
+  "theme_color": "#ff8787",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "money.png",
+      "sizes": "1024x1024",
+      "type": "image/png"
+    },
+    {
+      "src": "money.png",
+      "sizes": "1024x1024",
+      "type": "image/png"
+    }
+  ]
+}

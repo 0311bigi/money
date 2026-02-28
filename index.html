@@ -1108,8 +1108,7 @@
                                                                         );
                                                                     })()}                                                                        <div className="flex items-center justify-end gap-1 mt-0.5">
                                                                             <span className="text-xs text-stone-400 bg-black/5 px-1.5 py-0.5 rounded">{accName}</span>
-                                                                            <button onClick={(e)=>{e.stopPropagation();deleteData('transactions', tx.id)}} className="text-stone-300 hover:text-rose-500 p-1"><Icon name="trash-2" size={14}/></button>
-                                                                        </div>
+                                                                            <button onClick={(e)=>{e.stopPropagation();if(confirm('確定要刪除這筆交易嗎？')) deleteData('transactions', tx.id)}} className="text-stone-300 hover:text-rose-500 p-1"><Icon name="trash-2" size={14}/></button>                                                                        </div>
                                                                     </div>
                                                                 </div>
                                                             );
@@ -1134,7 +1133,7 @@
                                         <p className="text-xs text-stone-400 flex justify-between"><span>目標 ${safeNum(Math.round(retireProgress.target/10000))} 萬</span><span>剩 {retireProgress.years} 年</span></p>
                                         <div className={`mt-3 p-2 rounded-lg bg-white/10 text-xs flex items-start gap-2 ${retirementInsight.color}`}><Icon name={retirementInsight.icon} size={14} className="mt-0.5"/><span>{retirementInsight.text}</span></div>
                                     </div>
-{/* --- 修改開始：區分啟用與停用帳戶 --- */}
+                                    {/* --- 修改開始：區分啟用與停用帳戶 --- */}
                                     {(() => {
                                         const activeAccounts = accounts.filter(a => !a.isArchived);
                                         const archivedAccounts = accounts.filter(a => a.isArchived);
@@ -1148,8 +1147,7 @@
                                                                 <div className="absolute top-1/2 right-4 -translate-y-1/2 text-stone-300 pointer-events-none"><Icon name="chevron-right" size={20} /></div>
                                                                 <div className="absolute top-3 right-3 flex gap-2" onClick={e => e.stopPropagation()}>
                                                                     <button onClick={()=>{setEditTarget(acc); openAccModalCorrect(acc);}} className="text-stone-400 hover:text-rose-500 p-1"><Icon name="edit-2" size={16}/></button>
-                                                                    <button onClick={()=>deleteData('accounts', acc.id)} className="text-stone-400 hover:text-rose-600 p-1"><Icon name="trash-2" size={16}/></button>
-                                                                </div>
+                                                                    <button onClick={()=>{if(confirm('⚠️ 警告：確定要刪除此帳戶嗎？\n\n建議改用「停用」功能，以免歷史交易資料失去關聯。')) deleteData('accounts', acc.id)}} className="text-stone-400 hover:text-rose-600 p-1"><Icon name="trash-2" size={16}/></button>                                                                </div>
                                                                 <div className="flex gap-3 items-center mb-2">
                                                                     <div className="text-stone-300 cursor-move" onClick={e => e.stopPropagation()}><Icon name="grip-vertical" size={16}/></div>
                                                                     <div className={`p-2 rounded-lg ${ACCOUNT_TYPES[acc.type]?.color || 'bg-stone-100 text-stone-600'}`}><Icon name={ACCOUNT_TYPES[acc.type]?.iconName || 'wallet'} size={18}/></div>
@@ -1446,12 +1444,89 @@
                                         </div>
                                     ) : (
                                         <>
-                                            <div className="flex gap-2">
-                                                <select className="flex-1 bg-stone-50 p-3 rounded-lg font-bold text-stone-700" value={txForm.category} onChange={e=>{ if(e.target.value === 'ADD_NEW') { setEditingCategoryType(txForm.type); setModal('cat'); } else { setTxForm({...txForm, category:e.target.value}); } }}>{categories[txForm.type].map(c=><option key={c.name} value={c.name}>{c.name}</option>)}<option value="ADD_NEW">➕ 新增類別...</option></select>
-                                                <button onClick={()=>{setEditingCategoryType(txForm.type); setModal('cat');}} className="px-3 bg-stone-100 rounded-lg text-stone-500 hover:bg-stone-200 flex items-center justify-center" title="管理類別"><Icon name="plus" size={20}/></button>
+                                           {/* --- 修改開始：優化類別選擇 UI (固定管理按鈕 + 無子類別提示) --- */}
+                                            <div className="space-y-3">
+                                                {/* 主類別區：左邊滑動清單 + 右邊固定管理按鈕 */}
+                                                <div className="flex gap-2 items-center">
+                                                    {/* 滑動清單 */}
+                                                    <div className="flex-1 overflow-x-auto no-scrollbar flex gap-2 pb-1" style={{ scrollSnapType: 'x mandatory' }}>
+                                                        {categories[txForm.type].map(c => (
+                                                            <button 
+                                                                key={c.name} 
+                                                                onClick={() => setTxForm({ ...txForm, category: c.name, subCategory: '' })} 
+                                                                className={`whitespace-nowrap px-4 py-2.5 rounded-full font-bold text-sm transition-all flex items-center gap-1.5 shadow-sm active:scale-95 shrink-0 ${
+                                                                    txForm.category === c.name 
+                                                                        ? 'bg-stone-800 text-white shadow-stone-300' 
+                                                                        : 'bg-white border border-stone-200 text-stone-500 hover:bg-stone-50'
+                                                                }`}
+                                                                style={{ scrollSnapAlign: 'start' }}
+                                                            >
+                                                                <Icon name={c.icon} size={16} />
+                                                                {c.name}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                    {/* 固定在右邊的管理按鈕 (不會被捲走) */}
+                                                    <div className="pl-1 border-l border-stone-200">
+                                                        <button 
+                                                            onClick={()=>{setEditingCategoryType(txForm.type); setModal('cat');}} 
+                                                            className="w-10 h-10 rounded-full bg-stone-100 text-stone-400 hover:bg-stone-200 hover:text-stone-600 flex items-center justify-center transition-colors shrink-0"
+                                                            title="管理類別"
+                                                        >
+                                                            <Icon name="settings" size={20}/>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            
+                                                {/* 子類別：大按鈕網格區 */}
+                                                {(() => {
+                                                    const currentCat = categories[txForm.type].find(c => c.name === txForm.category);
+                                                    
+                                                    // 情況 A: 有子類別 -> 顯示大按鈕
+                                                    if (currentCat?.subs?.length > 0) {
+                                                        return (
+                                                            <div className="grid grid-cols-3 gap-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                                                                {currentCat.subs.map(s => (
+                                                                    <button 
+                                                                        key={s} 
+                                                                        onClick={() => setTxForm({ ...txForm, subCategory: s })} 
+                                                                        className={`p-3 rounded-xl text-sm font-bold border transition-all active:scale-95 shadow-sm truncate ${
+                                                                            txForm.subCategory === s 
+                                                                                ? 'bg-rose-50 text-rose-600 border-rose-200 ring-2 ring-rose-100' 
+                                                                                : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'
+                                                                        }`}
+                                                                    >
+                                                                        {s}
+                                                                    </button>
+                                                                ))}
+                                                                {/* 方便快速新增子類別的按鈕 */}
+                                                                <button 
+                                                                    onClick={()=>{setEditingCategory(currentCat); setEditingCategoryType(txForm.type); setModal('editCat');}}
+                                                                    className="p-3 rounded-xl text-sm font-bold border border-dashed border-stone-300 text-stone-400 hover:bg-stone-50 flex items-center justify-center gap-1"
+                                                                >
+                                                                    <Icon name="plus" size={14}/>
+                                                                </button>
+                                                            </div>
+                                                        );
+                                                    }
+                                                    
+                                                    // 情況 B: 沒有子類別 -> 顯示提示與新增按鈕 (解決你看不到東西以為壞掉的問題)
+                                                    return (
+                                                        <div className="bg-stone-50 rounded-xl p-3 border border-stone-100 border-dashed flex justify-between items-center animate-in fade-in">
+                                                            <span className="text-xs text-stone-400 pl-1">此類別尚無子項目</span>
+                                                            <button 
+                                                                onClick={()=>{setEditingCategory(currentCat); setEditingCategoryType(txForm.type); setModal('editCat');}}
+                                                                className="text-xs bg-white border border-stone-200 px-3 py-1.5 rounded-lg font-bold text-stone-500 shadow-sm hover:text-rose-500"
+                                                            >
+                                                                + 新增子項目
+                                                            </button>
+                                                        </div>
+                                                    );
+                                                })()}
                                             </div>
-                                            {categories[txForm.type].find(c=>c.name===txForm.category)?.subs?.length > 0 && (<div className="flex flex-wrap gap-2">{categories[txForm.type].find(c=>c.name===txForm.category).subs.map(s=>(<button key={s} onClick={()=>setTxForm({...txForm, subCategory:s})} className={`px-3 py-1 rounded-full text-xs font-bold border transition-colors ${txForm.subCategory===s?'bg-stone-800 text-white':'bg-white text-stone-500'}`}>{s}</button>))}</div>)}
-                                    {!isOffset ? (
+                                            {/* --- 修改結束 --- */}
+
+ {!isOffset ? (
                                     <div className="w-full">
                                         <select className="w-full bg-stone-50 p-3 rounded-lg font-bold text-stone-700" value={txForm.accountId} onChange={e=>setTxForm({...txForm, accountId:e.target.value})}>
                                             <option value="">選擇帳戶</option>
