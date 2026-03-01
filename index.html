@@ -177,8 +177,8 @@
         const [editingTx, setEditingTx] = useState(null);
         const [accForm, setAccForm] = useState({ name:'', type:'cash', currency:'TWD', initialBalance:'', includeInTotal: true, isArchived: false });
         const [showArchived, setShowArchived] = useState(false); // 控制停用區塊是否折疊
-        const [recForm, setRecForm] = useState({ name:'', type:'expense', amount:'', day:1, category:'', startDate:'', endDate:'' });        const [newCatForm, setNewCatForm] = useState({ name:'', icon:'tag', type:'expense' });
-        const [retireForm, setRetireForm] = useState({});
+        const [recForm, setRecForm] = useState({ name:'', type:'expense', amount:'', day:1, accountId:'', toAccountId:'', category:'', subCategory:'', startDate: getLocalToday(), endDate:'' });        
+		const [retireForm, setRetireForm] = useState({});
         
         const [isAdvanceSplit, setIsAdvanceSplit] = useState(false);
         const [splitData, setSplitData] = useState({ advances:[{debtor:'',amount:''}], principalAmount:'', sourceAccountId:'' });
@@ -313,12 +313,10 @@
                         const newTx = {
                             type: r.type,
                             amount: r.amount,
-                            // 轉帳/支出來源帳戶，收入入帳帳戶
                             accountId: r.accountId || (accounts[0] ? accounts[0].id : ''), 
-                            // 轉帳目的帳戶 (僅轉帳有效)
                             toAccountId: r.toAccountId || '', 
-                            // 轉帳預設類別為「轉帳」，其他則讀取設定或預設值
-                            category: r.type === 'transfer' ? '轉帳' : (r.category || '固定收支'), 
+                            category: r.type === 'transfer' ? '轉帳' : (r.category || '固定收支'),
+                            subCategory: r.subCategory || '', // 🔥 新增：帶入子類別
                             date: getLocalToday(),
                             note: `[固定] ${r.name}`,
                             bookId: 'main',
@@ -1695,12 +1693,11 @@
                                 <div className="p-6 overflow-y-auto min-h-0">
                                     <h3 className="font-bold text-xl mb-4 text-stone-800">固定收支與轉帳</h3>
                                     
-                                    {/* --- 新增設定區塊 --- */}
                                     <div className="space-y-3 mb-6 border-b border-stone-100 pb-6">
                                         <input className="w-full p-3 bg-stone-50 rounded-lg border border-stone-200" placeholder="名稱 (例如: 定期定額 0050)" value={recForm.name} onChange={e=>setRecForm({...recForm, name:e.target.value})}/>
                                         
                                         <div className="flex gap-2">
-                                            <select className="p-3 bg-stone-50 rounded-lg border border-stone-200 font-bold text-stone-700" value={recForm.type} onChange={e=>setRecForm({...recForm, type:e.target.value, category:''})}>
+                                            <select className="p-3 bg-stone-50 rounded-lg border border-stone-200 font-bold text-stone-700" value={recForm.type} onChange={e=>setRecForm({...recForm, type:e.target.value, category:'', subCategory:''})}>
                                                 <option value="expense">支出</option>
                                                 <option value="income">收入</option>
                                                 <option value="transfer">轉帳</option>
@@ -1714,20 +1711,41 @@
 
                                         <input type="number" step="0.01" className="w-full p-3 bg-stone-50 rounded-lg border border-stone-200 tabular-nums font-bold text-lg" placeholder="金額" value={recForm.amount} onChange={e=>setRecForm({...recForm, amount:e.target.value})}/>
                                         
-                                        {/* 轉帳模式不顯示類別選擇 */}
+                                        {/* 類別選擇邏輯 (支援子類別) */}
                                         {recForm.type !== 'transfer' && (
-                                            <div>
-                                                <label className="text-xs font-bold text-stone-500 ml-1 mb-1 block">類別</label>
-                                                <select className="w-full p-3 bg-stone-50 rounded-lg border border-stone-200 text-stone-700 font-bold" value={recForm.category} onChange={e=>setRecForm({...recForm, category:e.target.value})}>
-                                                    <option value="">選擇類別 (預設: 固定收支)</option>
-                                                    {categories[recForm.type]?.map(c => (
-                                                        <option key={c.name} value={c.name}>{c.name}</option>
-                                                    ))}
-                                                </select>
+                                            <div className="space-y-2">
+                                                <div>
+                                                    <label className="text-xs font-bold text-stone-500 ml-1 mb-1 block">類別</label>
+                                                    <select className="w-full p-3 bg-stone-50 rounded-lg border border-stone-200 text-stone-700 font-bold" value={recForm.category} onChange={e=>setRecForm({...recForm, category:e.target.value, subCategory:''})}>
+                                                        <option value="">選擇類別 (預設: 固定收支)</option>
+                                                        {categories[recForm.type]?.map(c => (
+                                                            <option key={c.name} value={c.name}>{c.name}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                                
+                                                {/* 🔥 新增：如果有子類別，顯示第二個下拉選單 */}
+                                                {(() => {
+                                                    const selectedCat = categories[recForm.type]?.find(c => c.name === recForm.category);
+                                                    if (selectedCat && selectedCat.subs && selectedCat.subs.length > 0) {
+                                                        return (
+                                                            <div>
+                                                                <label className="text-xs font-bold text-stone-500 ml-1 mb-1 block">子類別</label>
+                                                                <select className="w-full p-3 bg-stone-50 rounded-lg border border-stone-200 text-stone-700" value={recForm.subCategory} onChange={e=>setRecForm({...recForm, subCategory:e.target.value})}>
+                                                                    <option value="">無子類別</option>
+                                                                    {selectedCat.subs.map(s => (
+                                                                        <option key={s} value={s}>{s}</option>
+                                                                    ))}
+                                                                </select>
+                                                            </div>
+                                                        );
+                                                    }
+                                                    return null;
+                                                })()}
                                             </div>
                                         )}
 
-                                        {/* 帳戶選擇邏輯：轉帳顯示兩個，收支顯示一個 */}
+                                        {/* 帳戶選擇 */}
                                         {recForm.type === 'transfer' ? (
                                             <div className="flex gap-2">
                                                 <div className="flex-1">
@@ -1768,7 +1786,6 @@
                                         <button onClick={handleRecurringSave} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-rose-600 transition-colors">新增固定項目</button>
                                     </div>
 
-                                    {/* --- 已設定清單區塊 (新增) --- */}
                                     <div>
                                         <h4 className="font-bold text-stone-600 mb-3 text-sm">已設定項目 ({recurring.length})</h4>
                                         <div className="space-y-2">
@@ -1780,7 +1797,11 @@
                                                             <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${r.type==='expense'?'bg-rose-100 text-rose-500':r.type==='income'?'bg-emerald-100 text-emerald-500':'bg-slate-200 text-slate-600'}`}>
                                                                 {r.type==='expense'?'支出':r.type==='income'?'收入':'轉帳'}
                                                             </span>
-                                                            <span className="font-bold text-stone-700 text-sm">{r.name}</span>
+                                                            <span className="font-bold text-stone-700 text-sm">
+                                                                {r.name} 
+                                                                {/* 顯示類別與子類別 */}
+                                                                {r.category && <span className="text-xs text-stone-400 font-normal ml-1">({r.category}{r.subCategory ? `-${r.subCategory}` : ''})</span>}
+                                                            </span>
                                                         </div>
                                                         <div className="text-xs text-stone-400">
                                                             每月 <span className="font-bold text-stone-600">{r.day}</span> 日 • ${Number(r.amount).toLocaleString()}
