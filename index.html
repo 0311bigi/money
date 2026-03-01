@@ -1150,28 +1150,28 @@
                                             <h2 className="text-3xl font-black tabular-nums">${safeNum(accountDetailData && accountDetailData.currentBalance)}</h2>
                                         </div>
                                         
-                                        {/* 🔥 新增：信用卡一鍵繳款按鈕 (優先預設永豐) */}
+                                        {/* 🔥 新增：信用卡一鍵繳款按鈕 (極簡版：直接抓取當前餘額) */}
                                         {viewingAccount.type === 'credit' && (
                                             <button
                                                 onClick={() => {
-                                                    // 1. 智慧選擇轉出帳戶邏輯
-                                                    // 優先找名稱包含「永豐」的帳戶 -> 其次找任意「銀行」帳戶 -> 再其次找「現金」
+                                                    // 1. 智慧選擇轉出帳戶 (優先找永豐 -> 銀行 -> 現金)
                                                     const defaultBank = accounts.find(a => a.name.includes('永豐') && !a.isArchived) 
                                                                      || accounts.find(a => a.type === 'bank' && !a.isArchived)
                                                                      || accounts.find(a => a.type === 'cash' && !a.isArchived);
 
-                                                    // 2. 抓取當期支出總額
-                                                    const billAmount = accountDetailData?.stats?.mExpense || '';
+                                                    // 2. 🔥 修正金額計算邏輯：直接抓取「當前餘額」的絕對值
+                                                    // 因為你已經對過帳，確認最後餘額 = 應繳金額，所以直接用這個數字最準
+                                                    const billAmount = accountDetailData ? Math.abs(accountDetailData.currentBalance) : 0;
                                                     
                                                     setTxForm({
                                                         type: 'transfer',
                                                         amount: billAmount, 
-                                                        accountId: defaultBank ? defaultBank.id : '', // 這裡會自動帶入找到的永豐銀行 ID
+                                                        accountId: defaultBank ? defaultBank.id : '', // 自動帶入永豐
                                                         toAccountId: viewingAccount.id, // 轉入(本卡)
-                                                        category: '轉帳', // 繳費通常視為轉帳
+                                                        category: '轉帳', 
                                                         subCategory: '',
                                                         date: getLocalToday(),
-                                                        note: `信用卡繳款 (${accountDetailMonth})`, // 自動備註
+                                                        note: `信用卡繳款 (${accountDetailMonth})`, 
                                                         bookId: currentBook.id
                                                     });
                                                     setModal('tx');
