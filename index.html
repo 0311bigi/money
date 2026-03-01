@@ -3,10 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>雲端帳本 Pro (V19.2 Ultimate)</title>
+    
+    <title>退休計劃</title>
+    
+    <link rel="manifest" id="my-manifest"> <link rel="icon" id="dynamic-favicon">  
+    <link rel="apple-touch-icon" id="dynamic-apple-icon">
+    
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="apple-mobile-web-app-title" content="雲端帳本">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"> <meta name="apple-mobile-web-app-title" content="退休計劃">
+    
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#F8FAFC">
     
@@ -24,16 +29,42 @@
 
     <script>
         (function() {
+            // 1. 繪製圖示 (帳)
             var c = document.createElement('canvas'); c.width = 512; c.height = 512; var x = c.getContext('2d');
             x.fillStyle = '#e11d48'; 
             x.fillRect(0, 0, 512, 512);
             x.strokeStyle = 'rgba(255,255,255,0.2)'; x.lineWidth = 40; x.beginPath(); x.arc(512, 512, 200, 0, Math.PI*2); x.stroke();
-            x.fillStyle = '#fff'; x.font = 'bold 300px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('帳', 256, 270);
-            var u = c.toDataURL('image/png');
-            var l1 = document.createElement('link'); l1.rel = 'apple-touch-icon'; l1.href = u; document.head.appendChild(l1);
-            var l2 = document.createElement('link'); l2.rel = 'icon'; l2.type = 'image/png'; l2.href = u; document.head.appendChild(l2);
+            x.fillStyle = '#fff'; x.font = 'bold 300px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('退', 256, 270); // 改成「退」或保持「帳」
+            var iconUrl = c.toDataURL('image/png');
+
+            // 2. 設定網頁圖示
+            document.getElementById('dynamic-favicon').href = iconUrl;
+            document.getElementById('dynamic-apple-icon').href = iconUrl;
+
+            // 3. 動態生成 Manifest (全螢幕關鍵)
+            var manifest = {
+                "name": "退休計劃",
+                "short_name": "退休計劃",
+                "start_url": ".",
+                "display": "standalone", // 這一行讓它變成全螢幕 APP
+                "background_color": "#F8FAFC",
+                "theme_color": "#F8FAFC",
+                "orientation": "portrait",
+                "icons": [{
+                    "src": iconUrl,
+                    "sizes": "512x512",
+                    "type": "image/png"
+                }]
+            };
+            
+            // 將 Manifest 物件轉為 Blob URL 放入 href
+            var stringManifest = JSON.stringify(manifest);
+            var blob = new Blob([stringManifest], {type: 'application/json'});
+            var manifestURL = URL.createObjectURL(blob);
+            document.getElementById('my-manifest').setAttribute('href', manifestURL);
         })();
     </script>
+    
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -159,6 +190,7 @@
         const [splitData, setSplitData] = useState({ advances:[{debtor:'',amount:''}], principalAmount:'', sourceAccountId:'' });
         const [installment, setInstallment] = useState({ enabled:false, periods:3 });
         const [settleToAccount, setSettleToAccount] = useState('');
+		const [settleDate, setSettleDate] = useState(getLocalToday());
         const [newMarketValue, setNewMarketValue] = useState('');
 		const [closingRate, setClosingRate] = useState('');
         const [holdingForm, setHoldingForm] = useState([]);
@@ -392,19 +424,44 @@
                 accountId: settleToAccount || accounts[0]?.id,
                 relatedTxId: settleTargetTx.id,
                 bookId: currentBook.id,
-                date: getLocalToday(),
+                date: settleDate,
                 note: `收回代墊: ${settleTargetTx.debtor}`,
                 createdAt: new Date().toISOString()
             });
 
             if (Math.abs(getRemainingDebt(settleTargetTx.id) - repayAmount) < 1) {
-                    batch.update(fbRef.current.doc(userRef, 'transactions', settleTargetTx.id), { isSettled: true });
+                batch.update(fbRef.current.doc(userRef, 'transactions', settleTargetTx.id), { isSettled: true });
             }
 
             await batch.commit();
             setModal(null);
             setSettleTargetTx(null);
         };
+		
+		// 💡 新增：還原還款功能 (刪除還款紀錄 + 恢復欠款狀態)
+        const handleUndoRepayment = async (tx) => {
+            if (!confirm(`確定要還原這筆對「${tx.note.replace('收回代墊: ', '')}」的還款嗎？\n\n1. 此還款紀錄將被刪除。\n2. 對應的代墊欠款將恢復為「未結清」狀態。`)) return;
+            
+            try {
+                const batch = fbRef.current.writeBatch(dbRef.current);
+                const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
+                
+                // 1. 刪除還款紀錄
+                batch.delete(fbRef.current.doc(userRef, 'transactions', tx.id));
+                
+                // 2. 如果有關聯的代墊交易，將其狀態改回未結清
+                if (tx.relatedTxId) {
+                    batch.update(fbRef.current.doc(userRef, 'transactions', tx.relatedTxId), { isSettled: false });
+                }
+                
+                await batch.commit();
+                alert("已成功還原！該筆款項已回到「待收」清單中。");
+            } catch (e) {
+                console.error(e);
+                alert("還原失敗，請檢查網路連線");
+            }
+        };
+		
         // --- 新增：取得換算後的台幣金額 ---
         // --- 修正：優先使用交易當下鎖定的匯率 ---
         const getBaseAmt = (tx, accs, rates) => {
@@ -600,7 +657,8 @@
             return { displayList, stats: { mIncome, mExpense, mTrans }, currentBalance: balance };
         }, [viewingAccount, transactions, accountDetailMonth]);
 
-        const handleTxSave = () => {
+        // 💡 核心修復：改為 async 函數，並等待所有寫入完成
+        const handleTxSave = async () => { 
             const amt = parseFloat(txForm.amount);
             if (!amt) { alert('請輸入金額'); return; }
             if (txForm.type === 'transfer') {
@@ -617,58 +675,81 @@
                 finalCategory = '轉帳';
             }
             
+            // 編輯時保留原始建立時間，新增時使用現在時間
             const createdAt = editingTx ? editingTx.createdAt : new Date().toISOString();
             
-            // --- 新增：抓出該帳戶目前的匯率 ---
             const selectedAcc = accounts.find(a => a.id === txForm.accountId);
             const currentRate = (selectedAcc && selectedAcc.currency !== 'TWD') ? (exchangeRates[selectedAcc.currency] || 1) : 1;
 
-            // 把 currentRate 塞進 base 物件裡
             const base = { 
                 ...txForm, 
                 bookId: currentBook.id, 
                 amount: amt, 
                 category: finalCategory, 
                 createdAt,
-                exchangeRate: currentRate // ✅ 將當下匯率存入此筆交易
+                exchangeRate: currentRate
             };
             
-            if (editingTx) {
-                saveData('transactions', base, editingTx.id);
-                setModal(null);
-                setEditingTx(null);
-                return;
-            }
-            if (isOffset && offsetTargetId) {
-                saveData('transactions', { ...base, accountId: OFFSET_ACCOUNT_ID, note: `抵扣: ${txForm.note}` }); 
-                saveData('transactions', { type: 'repayment', amount: amt, accountId: OFFSET_ACCOUNT_ID, relatedTxId: offsetTargetId, date: txForm.date, bookId: currentBook.id, note: `抵扣支出 (${finalCategory})`, createdAt: new Date().toISOString() }); 
-                setModal(null); return;
-            }
-            if (txForm.type === 'expense' && installment.enabled) {
-                const p = parseInt(installment.periods);
-                const per = Math.round(amt / p);
-                for (let i = 0; i < p; i++) {
-                    saveData('transactions', { ...base, amount: (i===0?amt-(per*p)+per:per), date: addMonths(txForm.date, i), note: `${txForm.note} (${i+1}/${p})`, createdAt: new Date().toISOString() });
+            try {
+                // 🛑 情況 A：編輯現有交易 (包含修正日期)
+                if (editingTx) {
+                    await saveData('transactions', base, editingTx.id); // 💡 加上 await 確保更新完成
+                    setModal(null);
+                    setEditingTx(null);
+                    return;
                 }
-            } else if (txForm.type === 'expense' && isAdvanceSplit) {
-                    let advTotal = 0;
-                    splitData.advances.forEach(a => {
-                        if (a.debtor && a.amount) {
-                            saveData('transactions', { ...base, type:'advance', amount: parseFloat(a.amount), debtor: a.debtor, isSettled: false, note: `代墊: ${txForm.note}`, createdAt: new Date().toISOString() });
-                            advTotal += parseFloat(a.amount);
-                        }
-                    });
-                    const myExp = amt - advTotal;
-                    if (myExp > 0) saveData('transactions', { ...base, amount: myExp, createdAt: new Date().toISOString() });
-            } else if (txForm.type === 'income' && isAdvanceSplit) {
-                const principal = parseFloat(splitData.principalAmount) || 0;
-                const gain = amt - principal;
-                if (principal > 0) saveData('transactions', { ...base, type: 'transfer', amount: principal, category: '轉帳', accountId: splitData.sourceAccountId, toAccountId: txForm.accountId, note: `投資本金`, createdAt: new Date().toISOString() });
-                if (gain !== 0) saveData('transactions', { ...base, type: 'income', amount: gain, category: txForm.category || '投資', note: `投資獲利`, createdAt: new Date().toISOString() });
-            } else {
-                saveData('transactions', base);
+
+                // 🛑 情況 B：使用待收抵扣
+                if (isOffset && offsetTargetId) {
+                    await saveData('transactions', { ...base, accountId: OFFSET_ACCOUNT_ID, note: `抵扣: ${txForm.note}` }); 
+                    await saveData('transactions', { type: 'repayment', amount: amt, accountId: OFFSET_ACCOUNT_ID, relatedTxId: offsetTargetId, date: txForm.date, bookId: currentBook.id, note: `抵扣支出 (${finalCategory})`, createdAt: new Date().toISOString() }); 
+                    setModal(null); return;
+                }
+
+                // 🛑 情況 C：分期付款
+                if (txForm.type === 'expense' && installment.enabled) {
+                    const p = parseInt(installment.periods);
+                    const per = Math.round(amt / p);
+                    const promises = []; 
+                    for (let i = 0; i < p; i++) {
+                        promises.push(saveData('transactions', { ...base, amount: (i===0?amt-(per*p)+per:per), date: addMonths(txForm.date, i), note: `${txForm.note} (${i+1}/${p})`, createdAt: new Date().toISOString() }));
+                    }
+                    await Promise.all(promises); // 💡 等待全部分期寫入
+                
+                // 🛑 情況 D：多人代墊 (最容易掉資料的地方)
+                } else if (txForm.type === 'expense' && isAdvanceSplit) {
+                        let advTotal = 0;
+                        const promises = []; 
+                        splitData.advances.forEach(a => {
+                            if (a.debtor && a.amount) {
+                                // 建立代墊單據
+                                promises.push(saveData('transactions', { ...base, type:'advance', amount: parseFloat(a.amount), debtor: a.debtor, isSettled: false, note: `代墊: ${txForm.note}`, createdAt: new Date().toISOString() }));
+                                advTotal += parseFloat(a.amount);
+                            }
+                        });
+                        const myExp = amt - advTotal;
+                        // 如果有自付額，建立一筆支出
+                        if (myExp > 0) promises.push(saveData('transactions', { ...base, amount: myExp, createdAt: new Date().toISOString() }));
+                        
+                        await Promise.all(promises); // 💡 關鍵！確保所有代墊都存進去才關閉
+                
+                // 🛑 情況 E：投資分拆
+                } else if (txForm.type === 'income' && isAdvanceSplit) {
+                    const principal = parseFloat(splitData.principalAmount) || 0;
+                    const gain = amt - principal;
+                    const promises = [];
+                    if (principal > 0) promises.push(saveData('transactions', { ...base, type: 'transfer', amount: principal, category: '轉帳', accountId: splitData.sourceAccountId, toAccountId: txForm.accountId, note: `投資本金`, createdAt: new Date().toISOString() }));
+                    if (gain !== 0) promises.push(saveData('transactions', { ...base, type: 'income', amount: gain, category: txForm.category || '投資', note: `投資獲利`, createdAt: new Date().toISOString() }));
+                    await Promise.all(promises);
+                } else {
+                    // 🛑 情況 F：普通單筆交易
+                    await saveData('transactions', base);
+                }
+                setModal(null);
+            } catch (e) {
+                console.error(e);
+                alert("儲存失敗，請檢查網路連線");
             }
-            setModal(null);
         };
 
         const handleRecurringSave = () => {
@@ -1005,34 +1086,25 @@
                                                         {group.txs.map((tx, idx) => (
                                                             <div key={tx.id} onClick={() => openTxModal(tx.type, tx)} className={`p-3 flex justify-between items-center cursor-pointer hover:bg-stone-50 ${idx !== group.txs.length - 1 ? 'border-b border-stone-100' : ''}`}>
                                                                 <div className="flex items-center gap-3">
-                                                                    <div className={`p-2 rounded-lg ${tx.displayType==='income'?'bg-emerald-100 text-emerald-600': tx.displayType==='expense'?'bg-rose-100 text-rose-600':'bg-stone-100 text-stone-600'}`}><Icon name={getCategoryIcon(tx.category, tx.type)} size={18}/></div>
+                                                                    {/* 💡 修改：還款用綠色 */}
+                                                                    <div className={`p-2 rounded-lg ${tx.displayType==='income' || tx.type==='repayment' ?'bg-emerald-100 text-emerald-600': tx.displayType==='expense'?'bg-rose-100 text-rose-600':'bg-stone-100 text-stone-600'}`}><Icon name={getCategoryIcon(tx.category, tx.type)} size={18}/></div>
                                                                     <div>
                                                                         <p className="font-bold text-sm text-stone-800 flex items-center flex-wrap gap-1">
                                                                             {tx.type === 'advance' ? `代墊: ${tx.debtor}` : (tx.category || '未分類')}
                                                                             {tx.subCategory && <span className="text-xs text-stone-400">({tx.subCategory})</span>}
-                                                                            
-                                                                            {/* --- 新增：智慧代墊狀態標籤 --- */}
+                                                                            {/* 代墊狀態標籤 */}
                                                                             {tx.type === 'advance' && (() => {
                                                                                 const adv = stats.advanceMap[tx.id];
                                                                                 if (!adv) return null;
-                                                                                // 判斷是否已經還清 (容許 0.1 的浮點數誤差)
                                                                                 const isCleared = adv.remaining <= 0.1 || adv.isSettled;
-                                                                                return isCleared ? (
-                                                                                    <span className="text-[10px] bg-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded font-bold shadow-sm">
-                                                                                        ✅ 已收清
-                                                                                    </span>
-                                                                                ) : (
-                                                                                    <span className="text-[10px] bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded font-bold shadow-sm">
-                                                                                        待收 ${safeNum(adv.remaining)}
-                                                                                    </span>
-                                                                                );
+                                                                                return isCleared ? <span className="text-[10px] bg-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded font-bold shadow-sm">✅ 已收清</span> : <span className="text-[10px] bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded font-bold shadow-sm">待收 ${safeNum(adv.remaining)}</span>;
                                                                             })()}
-                                                                            {/* --------------------------------- */}
                                                                         </p>
                                                                         {tx.note && <p className="text-xs text-stone-500 mt-0.5">{tx.note}</p>}
                                                                     </div>
                                                                 </div>
                                                                 <div className="text-right">
+                                                                    {/* 💡 修改：還款用綠色 + */}
                                                                     <p className={`font-bold tabular-nums ${tx.change > 0 ? 'text-emerald-600' : 'text-stone-800'}`}>{tx.change > 0 ? '+' : ''}{safeNum(tx.change)}</p>
                                                                     <p className="text-[10px] text-stone-400 font-bold mt-0.5 tabular-nums">餘額: ${safeNum(tx.balanceSnapshot)}</p>
                                                                 </div>
@@ -1083,32 +1155,44 @@
                                                                 const toAcc = accounts.find(a => a.id === tx.toAccountId);
                                                                 accName += ` ➝ ${toAcc ? toAcc.name : '未知'}`;
                                                             }
+                                                            
+                                                            // 💡 修改：讓「還款」的左邊框線也是綠色
                                                             let rowStyle = "bg-white border-l-4 border-white"; 
                                                             if (tx.type === 'expense') rowStyle = "bg-white border-l-4 border-rose-500";
-                                                            if (tx.type === 'income') rowStyle = "bg-emerald-50 border-l-4 border-emerald-500";
+                                                            if (tx.type === 'income' || tx.type === 'repayment') rowStyle = "bg-emerald-50 border-l-4 border-emerald-500";
                                                             if (tx.type === 'transfer') rowStyle = "bg-slate-50 border-l-4 border-slate-400";
                                                             if (tx.type === 'advance') rowStyle = "bg-indigo-50 border-l-4 border-indigo-500";
+                                                        
                                                             return (
                                                                 <div key={tx.id} onClick={() => openTxModal(tx.type, tx)} className={`p-4 flex justify-between items-center cursor-pointer hover:bg-stone-50 transition-colors ${idx !== txs.length - 1 ? 'border-b border-stone-100' : ''} ${rowStyle}`}>
                                                                     <div className="flex items-center gap-3">
-                                                                        <div className={`p-2.5 rounded-xl ${tx.type==='income'?'bg-emerald-100 text-emerald-600': tx.type==='advance'?'bg-indigo-100 text-indigo-600' : 'bg-stone-100 text-stone-600'}`}><Icon name={getCategoryIcon(tx.category, tx.type)} size={18}/></div>
+                                                                        {/* 💡 修改：圖示背景色，還款用綠色 */}
+                                                                        <div className={`p-2.5 rounded-xl ${tx.type==='income' || tx.type==='repayment' ?'bg-emerald-100 text-emerald-600': tx.type==='advance'?'bg-indigo-100 text-indigo-600' : 'bg-stone-100 text-stone-600'}`}><Icon name={getCategoryIcon(tx.category, tx.type)} size={18}/></div>
                                                                         <div><p className="font-bold text-sm text-stone-800">{tx.type === 'advance' ? `代墊: ${tx.debtor}` : (tx.category || '未分類')} {tx.subCategory && <span className="text-xs text-stone-400 ml-1">({tx.subCategory})</span>}</p><p className="text-xs text-stone-400 mt-0.5">{tx.note}</p></div>
                                                                     </div>
                                                                     <div className="text-right">
-                                                                    {(() => {
-                                                                        const isForeign = acc && acc.currency !== 'TWD';
-                                                                        const baseAmt = getBaseAmt(tx, accounts, exchangeRates);
-                                                                        return (
-                                                                            <div className="text-right">
-                                                                                <p className={`font-bold tabular-nums ${tx.type==='income'?'text-emerald-600':'text-stone-800'}`}>
-                                                                                    {tx.type==='income'?'+':'-'}{safeNum(isForeign ? baseAmt : tx.amount)}
-                                                                                </p>
-                                                                                {isForeign && <p className="text-[10px] text-stone-400 mt-0.5 font-bold">({acc.currency} {tx.amount})</p>}
-                                                                            </div>
-                                                                        );
-                                                                    })()}                                                                        <div className="flex items-center justify-end gap-1 mt-0.5">
+                                                                        {(() => {
+                                                                            const isForeign = acc && acc.currency !== 'TWD';
+                                                                            const baseAmt = getBaseAmt(tx, accounts, exchangeRates);
+                                                                            return (
+                                                                                <div className="text-right">
+                                                                                    {/* 💡 修改：還款金額顏色變綠色，且加上 + 號 */}
+                                                                                    <p className={`font-bold tabular-nums ${tx.type==='income' || tx.type==='repayment' ?'text-emerald-600':'text-stone-800'}`}>
+                                                                                        {tx.type==='income' || tx.type==='repayment' ?'+':'-'}{safeNum(isForeign ? baseAmt : tx.amount)}
+                                                                                    </p>
+                                                                                    {isForeign && <p className="text-[10px] text-stone-400 mt-0.5 font-bold">({acc.currency} {tx.amount})</p>}
+                                                                                </div>
+                                                                            );
+                                                                        })()}
+                                                                        <div className="flex items-center justify-end gap-1 mt-0.5">
                                                                             <span className="text-xs text-stone-400 bg-black/5 px-1.5 py-0.5 rounded">{accName}</span>
-                                                                            <button onClick={(e)=>{e.stopPropagation();if(confirm('確定要刪除這筆交易嗎？')) deleteData('transactions', tx.id)}} className="text-stone-300 hover:text-rose-500 p-1"><Icon name="trash-2" size={14}/></button>                                                                        </div>
+                                                                            {/* 💡 修改：如果是還款，顯示還原按鈕；否則顯示刪除按鈕 */}
+                                                                            {tx.type === 'repayment' ? (
+                                                                                <button onClick={(e)=>{e.stopPropagation(); handleUndoRepayment(tx);}} className="text-stone-300 hover:text-blue-500 p-1" title="還原此筆還款"><Icon name="rotate-ccw" size={14}/></button>
+                                                                            ) : (
+                                                                                <button onClick={(e)=>{e.stopPropagation();if(confirm('確定要刪除這筆交易嗎？')) deleteData('transactions', tx.id)}} className="text-stone-300 hover:text-rose-500 p-1"><Icon name="trash-2" size={14}/></button>
+                                                                            )}
+                                                                        </div>
                                                                     </div>
                                                                 </div>
                                                             );
@@ -1400,8 +1484,8 @@
                                         {transactions.filter(t => t.type === 'advance' && getRemainingDebt(t.id) > 1).map(tx => (
                                             <div key={tx.id} className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-teal-500 flex justify-between items-center">
                                                 <div><div className="flex items-center gap-2 mb-1"><span className="bg-teal-50 text-teal-700 px-2 py-0.5 rounded text-xs font-bold">對象: {tx.debtor}</span><span className="text-xs text-stone-400 tabular-nums">{tx.date}</span></div><p className="font-bold text-lg text-stone-800 tabular-nums">${safeNum(getRemainingDebt(tx.id))}</p><p className="text-xs text-stone-500">{tx.note || '無備註'}</p></div>
-                                                <button onClick={() => { setSettleTargetTx({ ...tx, amount: getRemainingDebt(tx.id) }); setModal('settle'); }} className="bg-stone-600 text-white px-4 py-2 rounded-lg text-xs font-bold shadow hover:bg-stone-700">收款</button>
-                                            </div>
+                                                <button onClick={() => { setSettleTargetTx({ ...tx, amount: getRemainingDebt(tx.id) }); setSettleDate(getLocalToday()); setModal('settle'); }} className="bg-stone-600 text-white px-4 py-2 rounded-lg text-xs font-bold shadow hover:bg-stone-700">收款</button>                                            
+												</div>
                                         ))}
                                         {transactions.filter(t => t.type === 'advance' && getRemainingDebt(t.id) > 1).length===0 && <div className="text-center py-10 text-stone-400 text-sm">無待收項目</div>}
                                     </div>
@@ -1444,87 +1528,103 @@
                                         </div>
                                     ) : (
                                         <>
-                                           {/* --- 修改開始：優化類別選擇 UI (固定管理按鈕 + 無子類別提示) --- */}
-                                            <div className="space-y-3">
-                                                {/* 主類別區：左邊滑動清單 + 右邊固定管理按鈕 */}
-                                                <div className="flex gap-2 items-center">
-                                                    {/* 滑動清單 */}
-                                                    <div className="flex-1 overflow-x-auto no-scrollbar flex gap-2 pb-1" style={{ scrollSnapType: 'x mandatory' }}>
-                                                        {categories[txForm.type].map(c => (
-                                                            <button 
-                                                                key={c.name} 
-                                                                onClick={() => setTxForm({ ...txForm, category: c.name, subCategory: '' })} 
-                                                                className={`whitespace-nowrap px-4 py-2.5 rounded-full font-bold text-sm transition-all flex items-center gap-1.5 shadow-sm active:scale-95 shrink-0 ${
-                                                                    txForm.category === c.name 
-                                                                        ? 'bg-stone-800 text-white shadow-stone-300' 
-                                                                        : 'bg-white border border-stone-200 text-stone-500 hover:bg-stone-50'
-                                                                }`}
-                                                                style={{ scrollSnapAlign: 'start' }}
-                                                            >
-                                                                <Icon name={c.icon} size={16} />
-                                                                {c.name}
-                                                            </button>
-                                                        ))}
-                                                    </div>
-                                                    {/* 固定在右邊的管理按鈕 (不會被捲走) */}
-                                                    <div className="pl-1 border-l border-stone-200">
-                                                        <button 
-                                                            onClick={()=>{setEditingCategoryType(txForm.type); setModal('cat');}} 
-                                                            className="w-10 h-10 rounded-full bg-stone-100 text-stone-400 hover:bg-stone-200 hover:text-stone-600 flex items-center justify-center transition-colors shrink-0"
-                                                            title="管理類別"
-                                                        >
-                                                            <Icon name="settings" size={20}/>
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            
-                                                {/* 子類別：大按鈕網格區 */}
-                                                {(() => {
-                                                    const currentCat = categories[txForm.type].find(c => c.name === txForm.category);
-                                                    
-                                                    // 情況 A: 有子類別 -> 顯示大按鈕
-                                                    if (currentCat?.subs?.length > 0) {
-                                                        return (
-                                                            <div className="grid grid-cols-3 gap-2 animate-in fade-in slide-in-from-top-2 duration-300">
-                                                                {currentCat.subs.map(s => (
+                                        {/* --- 修改開始：優化類別選擇 UI (固定管理按鈕 + 無子類別提示 + 修復代墊崩潰) --- */}
+                                        <div className="space-y-3">
+                                            {(() => {
+                                                // 💡 關鍵修復：如果是「代墊」，就借用「支出」的類別清單；如果是「還款」或其他特殊類型，若沒清單就給空陣列
+                                                const displayType = txForm.type === 'advance' ? 'expense' : txForm.type;
+                                                const catList = categories[displayType] || [];
+                                        
+                                                // 如果該類型完全沒有分類清單 (例如還款)，就直接不顯示這一區，避免報錯
+                                                if (catList.length === 0) return null;
+                                        
+                                                return (
+                                                    <>
+                                                        {/* 主類別區：左邊滑動清單 + 右邊固定管理按鈕 */}
+                                                        <div className="flex gap-2 items-center">
+                                                            {/* 滑動清單 */}
+                                                            <div className="flex-1 overflow-x-auto no-scrollbar flex gap-2 pb-1" style={{ scrollSnapType: 'x mandatory' }}>
+                                                                {catList.map(c => (
                                                                     <button 
-                                                                        key={s} 
-                                                                        onClick={() => setTxForm({ ...txForm, subCategory: s })} 
-                                                                        className={`p-3 rounded-xl text-sm font-bold border transition-all active:scale-95 shadow-sm truncate ${
-                                                                            txForm.subCategory === s 
-                                                                                ? 'bg-rose-50 text-rose-600 border-rose-200 ring-2 ring-rose-100' 
-                                                                                : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'
+                                                                        key={c.name} 
+                                                                        onClick={() => setTxForm({ ...txForm, category: c.name, subCategory: '' })} 
+                                                                        className={`whitespace-nowrap px-4 py-2.5 rounded-full font-bold text-sm transition-all flex items-center gap-1.5 shadow-sm active:scale-95 shrink-0 ${
+                                                                            txForm.category === c.name 
+                                                                                ? 'bg-stone-800 text-white shadow-stone-300' 
+                                                                                : 'bg-white border border-stone-200 text-stone-500 hover:bg-stone-50'
                                                                         }`}
+                                                                        style={{ scrollSnapAlign: 'start' }}
                                                                     >
-                                                                        {s}
+                                                                        <Icon name={c.icon} size={16} />
+                                                                        {c.name}
                                                                     </button>
                                                                 ))}
-                                                                {/* 方便快速新增子類別的按鈕 */}
+                                                            </div>
+                                                            {/* 固定在右邊的管理按鈕 (不會被捲走) */}
+                                                            <div className="pl-1 border-l border-stone-200">
                                                                 <button 
-                                                                    onClick={()=>{setEditingCategory(currentCat); setEditingCategoryType(txForm.type); setModal('editCat');}}
-                                                                    className="p-3 rounded-xl text-sm font-bold border border-dashed border-stone-300 text-stone-400 hover:bg-stone-50 flex items-center justify-center gap-1"
+                                                                    onClick={()=>{setEditingCategoryType(displayType); setModal('cat');}} 
+                                                                    className="w-10 h-10 rounded-full bg-stone-100 text-stone-400 hover:bg-stone-200 hover:text-stone-600 flex items-center justify-center transition-colors shrink-0"
+                                                                    title="管理類別"
                                                                 >
-                                                                    <Icon name="plus" size={14}/>
+                                                                    <Icon name="settings" size={20}/>
                                                                 </button>
                                                             </div>
-                                                        );
-                                                    }
-                                                    
-                                                    // 情況 B: 沒有子類別 -> 顯示提示與新增按鈕 (解決你看不到東西以為壞掉的問題)
-                                                    return (
-                                                        <div className="bg-stone-50 rounded-xl p-3 border border-stone-100 border-dashed flex justify-between items-center animate-in fade-in">
-                                                            <span className="text-xs text-stone-400 pl-1">此類別尚無子項目</span>
-                                                            <button 
-                                                                onClick={()=>{setEditingCategory(currentCat); setEditingCategoryType(txForm.type); setModal('editCat');}}
-                                                                className="text-xs bg-white border border-stone-200 px-3 py-1.5 rounded-lg font-bold text-stone-500 shadow-sm hover:text-rose-500"
-                                                            >
-                                                                + 新增子項目
-                                                            </button>
                                                         </div>
-                                                    );
-                                                })()}
-                                            </div>
-                                            {/* --- 修改結束 --- */}
+                                        
+                                                        {/* 子類別：大按鈕網格區 */}
+                                                        {(() => {
+                                                            const currentCat = catList.find(c => c.name === txForm.category);
+                                                            
+                                                            // 情況 A: 有子類別 -> 顯示大按鈕
+                                                            if (currentCat?.subs?.length > 0) {
+                                                                return (
+                                                                    <div className="grid grid-cols-3 gap-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                                                                        {currentCat.subs.map(s => (
+                                                                            <button 
+                                                                                key={s} 
+                                                                                onClick={() => setTxForm({ ...txForm, subCategory: s })} 
+                                                                                className={`p-3 rounded-xl text-sm font-bold border transition-all active:scale-95 shadow-sm truncate ${
+                                                                                    txForm.subCategory === s 
+                                                                                        ? 'bg-rose-50 text-rose-600 border-rose-200 ring-2 ring-rose-100' 
+                                                                                        : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'
+                                                                                }`}
+                                                                            >
+                                                                                {s}
+                                                                            </button>
+                                                                        ))}
+                                                                        {/* 方便快速新增子類別的按鈕 */}
+                                                                        <button 
+                                                                            onClick={()=>{setEditingCategory(currentCat); setEditingCategoryType(displayType); setModal('editCat');}}
+                                                                            className="p-3 rounded-xl text-sm font-bold border border-dashed border-stone-300 text-stone-400 hover:bg-stone-50 flex items-center justify-center gap-1"
+                                                                        >
+                                                                            <Icon name="plus" size={14}/>
+                                                                        </button>
+                                                                    </div>
+                                                                );
+                                                            }
+                                                            
+                                                            // 情況 B: 沒有子類別 -> 顯示提示與新增按鈕
+                                                            if (currentCat) {
+                                                                return (
+                                                                    <div className="bg-stone-50 rounded-xl p-3 border border-stone-100 border-dashed flex justify-between items-center animate-in fade-in">
+                                                                        <span className="text-xs text-stone-400 pl-1">此類別尚無子項目</span>
+                                                                        <button 
+                                                                            onClick={()=>{setEditingCategory(currentCat); setEditingCategoryType(displayType); setModal('editCat');}}
+                                                                            className="text-xs bg-white border border-stone-200 px-3 py-1.5 rounded-lg font-bold text-stone-500 shadow-sm hover:text-rose-500"
+                                                                        >
+                                                                            + 新增子項目
+                                                                        </button>
+                                                                    </div>
+                                                                );
+                                                            }
+                                                            return null;
+                                                        })()}
+                                                    </>
+                                                );
+                                            })()}
+                                        </div>
+                                        {/* --- 修改結束 --- */}
 
  {!isOffset ? (
                                     <div className="w-full">
@@ -1768,8 +1868,37 @@
                         </div>
                     )}
                     {/* --- 修改結束 --- */}
-                    {modal === 'settle' && settleTargetTx && (<div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4"><div className="bg-white w-full max-w-sm p-6 rounded-2xl"><h3 className="font-bold text-xl mb-2 text-stone-800">收回代墊</h3><p className="text-stone-500 mb-4">對象: {settleTargetTx.debtor} / 金額: ${settleTargetTx.amount.toLocaleString()}</p><select className="w-full p-3 border rounded-lg mb-4" value={settleToAccount} onChange={e=>setSettleToAccount(e.target.value)}><option value="">存入帳戶</option>{accounts.filter(a => !a.isArchived).map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select><button onClick={handleSettle} className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold shadow-lg">確認收款</button><button onClick={()=>setModal(null)} className="w-full mt-2 text-stone-400">取消</button></div></div>)}                    {error && (<div className="fixed inset-0 z-[300] bg-black/50 flex items-center justify-center p-6"><div className="bg-white p-6 rounded-2xl max-w-xs w-full shadow-2xl"><h3 className="font-bold text-lg text-rose-500 mb-2">{error.title}</h3><p className="text-sm text-stone-600 mb-4 whitespace-pre-wrap">{error.message}</p><button onClick={()=>setError(null)} className="w-full bg-stone-800 text-white py-2 rounded-lg">OK</button></div></div>)}
-                </div>
+                    {modal === 'settle' && settleTargetTx && (
+                        <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4">
+                            <div className="bg-white w-full max-w-sm p-6 rounded-2xl animate-in fade-in zoom-in-95 duration-200">
+                                <h3 className="font-bold text-xl mb-2 text-stone-800">收回代墊</h3>
+                                <p className="text-stone-500 mb-4 font-bold">對象: {settleTargetTx.debtor} / 金額: ${settleTargetTx.amount.toLocaleString()}</p>
+                                
+                                {/* 新增：收款日期選擇器 */}
+                                <div className="mb-3">
+                                    <label className="text-xs font-bold text-stone-500 ml-1 mb-1 block">收款日期</label>
+                                    <input 
+                                        type="date" 
+                                        className="w-full p-3 bg-stone-50 border border-stone-200 rounded-lg font-bold text-stone-700 outline-none focus:border-emerald-500 transition-colors" 
+                                        value={settleDate} 
+                                        onChange={e=>setSettleDate(e.target.value)} 
+                                    />
+                                </div>
+
+                                <div className="mb-4">
+                                    <label className="text-xs font-bold text-stone-500 ml-1 mb-1 block">存入帳戶</label>
+                                    <select className="w-full p-3 bg-stone-50 border border-stone-200 rounded-lg font-bold text-stone-700 outline-none focus:border-emerald-500 transition-colors" value={settleToAccount} onChange={e=>setSettleToAccount(e.target.value)}>
+                                        <option value="">選擇帳戶...</option>
+                                        {accounts.filter(a => !a.isArchived).map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
+                                    </select>
+                                </div>
+
+                                <button onClick={handleSettle} className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-emerald-700 transition-colors">確認收款</button>
+                                <button onClick={()=>setModal(null)} className="w-full mt-3 py-2 text-stone-400 font-bold hover:text-stone-600 transition-colors">取消</button>
+                            </div>
+                        </div>
+                    )}                
+					</div>
             );
         }
         const root = ReactDOM.createRoot(document.getElementById('root'));
