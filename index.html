@@ -1150,7 +1150,7 @@
                                             <h2 className="text-3xl font-black tabular-nums">${safeNum(accountDetailData && accountDetailData.currentBalance)}</h2>
                                         </div>
                                         
-                                        {/* 🔥 新增：信用卡一鍵繳款按鈕 (極簡版：直接抓取當前餘額) */}
+                                        {/* 🔥 新增：信用卡一鍵繳款按鈕 (最終版：抓取當期帳單的「期末餘額」) */}
                                         {viewingAccount.type === 'credit' && (
                                             <button
                                                 onClick={() => {
@@ -1159,9 +1159,13 @@
                                                                      || accounts.find(a => a.type === 'bank' && !a.isArchived)
                                                                      || accounts.find(a => a.type === 'cash' && !a.isArchived);
 
-                                                    // 2. 🔥 修正金額計算邏輯：直接抓取「當前餘額」的絕對值
-                                                    // 因為你已經對過帳，確認最後餘額 = 應繳金額，所以直接用這個數字最準
-                                                    const billAmount = accountDetailData ? Math.abs(accountDetailData.currentBalance) : 0;
+                                                    // 2. 🔥 修正金額計算邏輯：抓取顯示列表中「最新一筆」(即該週期最後一天) 的餘額快照
+                                                    // 因為 displayList 已經是依日期倒序 (新->舊) 排列，所以 index 0 就是這期帳單的「最後一筆交易」
+                                                    let billAmount = 0;
+                                                    if (accountDetailData && accountDetailData.displayList && accountDetailData.displayList.length > 0) {
+                                                        // 直接拿這一筆交易當下的「餘額快照」並取絕對值
+                                                        billAmount = Math.abs(accountDetailData.displayList[0].balanceSnapshot);
+                                                    }
                                                     
                                                     setTxForm({
                                                         type: 'transfer',
