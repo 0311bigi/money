@@ -660,6 +660,7 @@
             if ((viewingAccount.type === 'credit' || viewingAccount.type === 'payable') && balance > 0) {
                 balance = -balance;
             }
+            
             const withBalance = related.map(t => {
                 const amt = parseFloat(t.amount);
                 let change = 0;
@@ -674,7 +675,33 @@
                 return { ...t, balanceSnapshot: balance, change, displayType: type };
             });
 
-            const monthTxs = withBalance.filter(t => String(t.date || '').startsWith(accountDetailMonth));
+            // 🔥 核心修改：判斷篩選區間
+            let monthTxs = [];
+            let cycleRange = null; // 用來存顯示用的日期範圍
+
+            if (viewingAccount.type === 'credit' && viewingAccount.closingDay) {
+                // 信用卡邏輯：依結帳日計算週期
+                const cDay = parseInt(viewingAccount.closingDay);
+                const [y, m] = accountDetailMonth.split('-').map(Number);
+                
+                // 本期結帳日 (例如選 3月，結帳日27 -> 3/27)
+                const endDate = new Date(y, m - 1, cDay);
+                // 上期結帳日+1天 (例如選 3月，上期2/27 -> 2/28)
+                const startDate = new Date(y, m - 2, cDay + 1);
+                
+                // 轉成 YYYY-MM-DD 字串做比較
+                const toStr = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                const sStr = toStr(startDate);
+                const eStr = toStr(endDate);
+                
+                cycleRange = `${String(startDate.getMonth()+1)}/${startDate.getDate()} ~ ${String(endDate.getMonth()+1)}/${endDate.getDate()}`;
+                
+                monthTxs = withBalance.filter(t => t.date >= sStr && t.date <= eStr);
+            } else {
+                // 一般帳戶邏輯：自然月
+                monthTxs = withBalance.filter(t => String(t.date || '').startsWith(accountDetailMonth));
+            }
+
             const displayList = [...monthTxs].sort((a, b) => {
                 if (a.date !== b.date) return a.date < b.date ? 1 : -1;
                 return (a.createdAt || '') < (b.createdAt || '') ? 1 : -1;
@@ -687,7 +714,7 @@
                 else if (t.displayType === 'transfer_in' || t.displayType === 'transfer_out') mTrans += t.change;
             });
 
-            return { displayList, stats: { mIncome, mExpense, mTrans }, currentBalance: balance };
+            return { displayList, stats: { mIncome, mExpense, mTrans }, currentBalance: balance, cycleRange };
         }, [viewingAccount, transactions, accountDetailMonth]);
 
         // 💡 核心修復：改為 async 函數，並等待所有寫入完成
@@ -1100,13 +1127,63 @@
                                 <div className="w-10"></div>
                             </header>
                             <div className="p-4 space-y-4">
-                                <div className="flex items-center justify-between bg-white rounded-xl p-2 shadow-sm border border-stone-200">
-                                    <button onClick={()=>changeDetailMonthStep(-1)} className="p-2 hover:bg-stone-50 rounded-lg text-stone-400"><Icon name="chevron-left"/></button>
-                                    <div className="text-center font-bold text-stone-800 text-lg">{accountDetailMonth.replace('-','年 ')}月</div>
-                                    <button onClick={()=>changeDetailMonthStep(1)} className="p-2 hover:bg-stone-50 rounded-lg text-stone-400"><Icon name="chevron-right"/></button>
+                                <div className="flex flex-col bg-white rounded-xl p-2 shadow-sm border border-stone-200">
+                                    <div className="flex items-center justify-between w-full">
+                                        <button onClick={()=>changeDetailMonthStep(-1)} className="p-2 hover:bg-stone-50 rounded-lg text-stone-400"><Icon name="chevron-left"/></button>
+                                        <div className="text-center">
+                                            <div className="font-bold text-stone-800 text-lg">{accountDetailMonth.replace('-','年 ')}月</div>
+                                            {/* 🔥 新增：如果是信用卡，顯示帳單週期範圍 */}
+                                            {accountDetailData?.cycleRange && (
+                                                <div className="text-[10px] text-stone-400 font-bold bg-stone-100 px-2 py-0.5 rounded-full mt-1">
+                                                    帳單週期: {accountDetailData.cycleRange}
+                                                </div>
+                                            )}
+                                        </div>
+                                        <button onClick={()=>changeDetailMonthStep(1)} className="p-2 hover:bg-stone-50 rounded-lg text-stone-400"><Icon name="chevron-right"/></button>
+                                    </div>
                                 </div>
+                                {/* 帳戶資訊卡片 (含一鍵繳款功能) */}
                                 <div className="bg-stone-800 rounded-xl p-6 text-white shadow-lg">
-                                    <div className="flex justify-between items-end mb-4"><div><p className="text-xs text-stone-400 mb-1">當前餘額</p><h2 className="text-3xl font-black tabular-nums">${safeNum(accountDetailData && accountDetailData.currentBalance)}</h2></div></div>
+                                    <div className="flex justify-between items-start mb-4">
+                                        <div>
+                                            <p className="text-xs text-stone-400 mb-1">當前餘額</p>
+                                            <h2 className="text-3xl font-black tabular-nums">${safeNum(accountDetailData && accountDetailData.currentBalance)}</h2>
+                                        </div>
+                                        
+                                        {/* 🔥 新增：信用卡一鍵繳款按鈕 (優先預設永豐) */}
+                                        {viewingAccount.type === 'credit' && (
+                                            <button
+                                                onClick={() => {
+                                                    // 1. 智慧選擇轉出帳戶邏輯
+                                                    // 優先找名稱包含「永豐」的帳戶 -> 其次找任意「銀行」帳戶 -> 再其次找「現金」
+                                                    const defaultBank = accounts.find(a => a.name.includes('永豐') && !a.isArchived) 
+                                                                     || accounts.find(a => a.type === 'bank' && !a.isArchived)
+                                                                     || accounts.find(a => a.type === 'cash' && !a.isArchived);
+
+                                                    // 2. 抓取當期支出總額
+                                                    const billAmount = accountDetailData?.stats?.mExpense || '';
+                                                    
+                                                    setTxForm({
+                                                        type: 'transfer',
+                                                        amount: billAmount, 
+                                                        accountId: defaultBank ? defaultBank.id : '', // 這裡會自動帶入找到的永豐銀行 ID
+                                                        toAccountId: viewingAccount.id, // 轉入(本卡)
+                                                        category: '轉帳', // 繳費通常視為轉帳
+                                                        subCategory: '',
+                                                        date: getLocalToday(),
+                                                        note: `信用卡繳款 (${accountDetailMonth})`, // 自動備註
+                                                        bookId: currentBook.id
+                                                    });
+                                                    setModal('tx');
+                                                }}
+                                                className="bg-white/10 hover:bg-white/20 text-white text-xs font-bold px-3 py-2 rounded-lg transition-colors flex items-center gap-1.5 border border-white/20"
+                                            >
+                                                <Icon name="check-circle" size={16} className="text-emerald-400" />
+                                                一鍵繳款
+                                            </button>
+                                        )}
+                                    </div>
+                                    
                                     <div className="grid grid-cols-3 gap-2 text-center text-xs">
                                         <div className="bg-white/10 p-2 rounded"><p className="text-stone-400 mb-1">收入</p><p className="font-bold text-emerald-400">+${safeNum(accountDetailData && accountDetailData.stats.mIncome)}</p></div>
                                         <div className="bg-white/10 p-2 rounded"><p className="text-stone-400 mb-1">支出</p><p className="font-bold text-rose-400">-${safeNum(accountDetailData && accountDetailData.stats.mExpense)}</p></div>
@@ -1844,7 +1921,62 @@
                             </div>
                         </div>
                     )}
-                    {modal === 'acc' && (<div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4"><div className="bg-white w-full max-w-sm p-6 rounded-2xl"><h3 className="font-bold text-xl mb-4 text-stone-800">{editTarget ? '編輯帳戶' : '新增帳戶'}</h3><input className="w-full p-3 bg-stone-50 rounded-lg mb-4 border border-stone-200" placeholder="名稱" value={accForm.name} onChange={e=>setAccForm({...accForm, name:e.target.value})}/><select className="w-full p-3 bg-stone-50 rounded-lg mb-4 border border-stone-200" value={accForm.type} onChange={e=>setAccForm({...accForm, type:e.target.value})}>{Object.entries(ACCOUNT_TYPES).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select><input type="number" step="0.01" className="w-full p-3 bg-stone-50 rounded-lg mb-4 border border-stone-200 tabular-nums" placeholder="初始餘額" value={accForm.initialBalance} onChange={e=>setAccForm({...accForm, initialBalance:e.target.value})}/><div className="flex gap-2 mb-4"><span className="p-3 bg-stone-100 rounded text-sm text-stone-500">幣別</span><select className="flex-1 p-3 bg-stone-50 rounded border border-stone-200" value={accForm.currency} onChange={e=>setAccForm({...accForm, currency:e.target.value})}>{CURRENCIES.map(c=><option key={c} value={c}>{c}</option>)}</select></div><label className="flex items-center gap-3 p-3 bg-stone-50 rounded-lg mb-3 cursor-pointer border border-stone-200"><div className={`w-5 h-5 rounded-md flex items-center justify-center border ${accForm.includeInTotal ? 'bg-rose-500 border-rose-500 text-white' : 'bg-white border-stone-300'}`}>{accForm.includeInTotal && <Icon name="check" size={14} />}</div><input type="checkbox" className="hidden" checked={accForm.includeInTotal} onChange={e=>setAccForm({...accForm, includeInTotal:e.target.checked})} /><span className="text-sm font-bold text-stone-700">計入總資產</span></label><label className="flex items-center gap-3 p-3 bg-stone-50 rounded-lg mb-6 cursor-pointer border border-stone-200"><div className={`w-5 h-5 rounded-md flex items-center justify-center border ${accForm.isArchived ? 'bg-stone-500 border-stone-500 text-white' : 'bg-white border-stone-300'}`}>{accForm.isArchived && <Icon name="check" size={14} />}</div><input type="checkbox" className="hidden" checked={accForm.isArchived} onChange={e=>setAccForm({...accForm, isArchived:e.target.checked})} /><span className="text-sm font-bold text-stone-700">停用此帳戶 (隱藏於記帳選單)</span></label><button onClick={handleAccSubmit} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold shadow-lg">儲存</button><button onClick={()=>setModal(null)} className="w-full mt-2 text-stone-400 py-2">取消</button></div></div>)}                    
+                    {modal === 'acc' && (
+                        <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4">
+                            <div className="bg-white w-full max-w-sm p-6 rounded-2xl">
+                                <h3 className="font-bold text-xl mb-4 text-stone-800">{editTarget ? '編輯帳戶' : '新增帳戶'}</h3>
+                                
+                                <input className="w-full p-3 bg-stone-50 rounded-lg mb-4 border border-stone-200" placeholder="名稱" value={accForm.name} onChange={e=>setAccForm({...accForm, name:e.target.value})}/>
+                                
+                                <select className="w-full p-3 bg-stone-50 rounded-lg mb-4 border border-stone-200" value={accForm.type} onChange={e=>setAccForm({...accForm, type:e.target.value})}>
+                                    {Object.entries(ACCOUNT_TYPES).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+                                </select>
+
+                                {/* 🔥 新增：如果是信用卡，顯示結帳日設定 */}
+                                {accForm.type === 'credit' && (
+                                    <div className="flex items-center gap-2 mb-4 bg-blue-50 p-3 rounded-lg border border-blue-100">
+                                        <Icon name="calendar-days" size={18} className="text-blue-500"/>
+                                        <span className="text-sm font-bold text-blue-700 whitespace-nowrap">每月結帳日</span>
+                                        <input 
+                                            type="number" min="1" max="31" 
+                                            className="w-full p-1 bg-white rounded border border-blue-200 text-center font-bold tabular-nums" 
+                                            value={accForm.closingDay || '27'} 
+                                            onChange={e=>setAccForm({...accForm, closingDay:e.target.value})}
+                                        />
+                                        <span className="text-sm font-bold text-blue-700">日</span>
+                                    </div>
+                                )}
+
+                                <input type="number" step="0.01" className="w-full p-3 bg-stone-50 rounded-lg mb-4 border border-stone-200 tabular-nums" placeholder="初始餘額 (負債請填負數)" value={accForm.initialBalance} onChange={e=>setAccForm({...accForm, initialBalance:e.target.value})}/>
+                                
+                                <div className="flex gap-2 mb-4">
+                                    <span className="p-3 bg-stone-100 rounded text-sm text-stone-500">幣別</span>
+                                    <select className="flex-1 p-3 bg-stone-50 rounded border border-stone-200" value={accForm.currency} onChange={e=>setAccForm({...accForm, currency:e.target.value})}>
+                                        {CURRENCIES.map(c=><option key={c} value={c}>{c}</option>)}
+                                    </select>
+                                </div>
+
+                                <label className="flex items-center gap-3 p-3 bg-stone-50 rounded-lg mb-3 cursor-pointer border border-stone-200">
+                                    <div className={`w-5 h-5 rounded-md flex items-center justify-center border ${accForm.includeInTotal ? 'bg-rose-500 border-rose-500 text-white' : 'bg-white border-stone-300'}`}>
+                                        {accForm.includeInTotal && <Icon name="check" size={14} />}
+                                    </div>
+                                    <input type="checkbox" className="hidden" checked={accForm.includeInTotal} onChange={e=>setAccForm({...accForm, includeInTotal:e.target.checked})} />
+                                    <span className="text-sm font-bold text-stone-700">計入總資產</span>
+                                </label>
+
+                                <label className="flex items-center gap-3 p-3 bg-stone-50 rounded-lg mb-6 cursor-pointer border border-stone-200">
+                                    <div className={`w-5 h-5 rounded-md flex items-center justify-center border ${accForm.isArchived ? 'bg-stone-500 border-stone-500 text-white' : 'bg-white border-stone-300'}`}>
+                                        {accForm.isArchived && <Icon name="check" size={14} />}
+                                    </div>
+                                    <input type="checkbox" className="hidden" checked={accForm.isArchived} onChange={e=>setAccForm({...accForm, isArchived:e.target.checked})} />
+                                    <span className="text-sm font-bold text-stone-700">停用此帳戶 (隱藏於記帳選單)</span>
+                                </label>
+
+                                <button onClick={handleAccSubmit} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold shadow-lg">儲存</button>
+                                <button onClick={()=>setModal(null)} className="w-full mt-2 text-stone-400 py-2">取消</button>
+                            </div>
+                        </div>
+                    )}                    
                     {modal === 'recurring' && (
                         <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4">
                             <div className="bg-white w-full max-w-sm rounded-2xl max-h-[90vh] flex flex-col">
