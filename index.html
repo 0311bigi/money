@@ -1264,20 +1264,15 @@
                                         <p className="text-xs text-stone-400 flex justify-between"><span>目標 ${safeNum(Math.round(retireProgress.target/10000))} 萬</span><span>剩 {retireProgress.years} 年</span></p>
                                         <div className={`mt-3 p-2 rounded-lg bg-white/10 text-xs flex items-start gap-2 ${retirementInsight.color}`}><Icon name={retirementInsight.icon} size={14} className="mt-0.5"/><span>{retirementInsight.text}</span></div>
                                     </div>
-									{/* --- AI 顧問分析卡片 (最終修正版：全域匯率換算) --- */}
+									{/* --- AI 顧問分析卡片 (V3 精準版：只計算尚未發生的收支) --- */}
                                     {(() => {
-                                        const todayStr = getLocalToday();
-                                        const today = new Date();
-                                        const currentMonth = today.getMonth() + 1;
-                                        const nextMonth = (currentMonth % 12) + 1;
-
-                                        // 輔助函數：取得帳戶匯率
+                                        // 輔助：取得帳戶匯率
                                         const getRate = (accId) => {
                                             const acc = accounts.find(a => a.id === accId);
                                             return acc ? (exchangeRates[acc.currency] || 1) : 1;
                                         };
 
-                                        // 1. 計算流動資產 (需換算匯率)
+                                        // 1. 計算流動資產
                                         const liquidAssets = accounts
                                             .filter(a => (a.type === 'cash' || a.type === 'bank' || a.type === 'electronic') && !a.isArchived)
                                             .reduce((sum, a) => {
@@ -1286,51 +1281,69 @@
                                                 return sum + (rawBal * rate);
                                             }, 0);
 
-                                        // 2. 預測未來 2 個月的固定支出 (需換算匯率)
+                                        // 時間參數
+                                        const today = new Date();
+                                        const currentDay = today.getDate();       // 今天幾號 (1-31)
+                                        const currentMonth = today.getMonth() + 1; // 目前月份 (1-12)
+                                        const nextMonth = (currentMonth % 12) + 1; // 下個月
+
+                                        // 2. 精準預測「未來」固定支出 (本月剩餘 + 下個月全額)
                                         const futureFixedCost = recurring.reduce((sum, r) => {
-                                            if ((r.type !== 'expense' && r.type !== 'transfer') || (r.startDate && r.startDate > todayStr) || (r.endDate && r.endDate < todayStr)) return sum;
+                                            // 過濾掉非支出類，或已過期的設定
+                                            if ((r.type !== 'expense' && r.type !== 'transfer') || (r.endDate && r.endDate < getLocalToday())) return sum;
                                             
-                                            let cost = 0;
-                                            // 取得該交易扣款帳戶的匯率，將金額轉為 TWD
                                             const rate = getRate(r.accountId);
                                             const baseAmt = parseFloat(r.amount) * rate;
-                                            
+                                            let cost = 0;
+
                                             if (r.frequency === 'yearly') {
-                                                if (parseInt(r.month) === currentMonth || parseInt(r.month) === nextMonth) cost = baseAmt;
+                                                // 每年：只看月份是否對應
+                                                const m = parseInt(r.month);
+                                                // 如果是本月，且日期還沒到 -> 要算
+                                                if (m === currentMonth && r.day >= currentDay) cost += baseAmt;
+                                                // 如果是下個月 -> 要算
+                                                if (m === nextMonth) cost += baseAmt;
                                             } else {
-                                                cost = baseAmt * 2;
+                                                // 每月：
+                                                // 1. 下個月一定會扣
+                                                cost += baseAmt;
+                                                // 2. 本月如果日期還沒到，也要算 (例如今天 1號，5號的房租就算入；今天 20號，5號的房租就不算)
+                                                if (r.day >= currentDay) cost += baseAmt;
                                             }
                                             return sum + cost;
                                         }, 0);
 
-                                        // 3. 預測未來 2 個月的固定收入 (需換算匯率)
+                                        // 3. 精準預測「未來」固定收入 (本月未領 + 下個月全額)
                                         const futureFixedIncome = recurring.reduce((sum, r) => {
-                                            if (r.type !== 'income' || (r.startDate && r.startDate > todayStr) || (r.endDate && r.endDate < todayStr)) return sum;
+                                            if (r.type !== 'income' || (r.endDate && r.endDate < getLocalToday())) return sum;
                                             
-                                            let income = 0;
-                                            // 取得該交易入帳帳戶的匯率
                                             const rate = getRate(r.accountId);
                                             const baseAmt = parseFloat(r.amount) * rate;
-                                            
+                                            let income = 0;
+
                                             if (r.frequency === 'yearly') {
-                                                if (parseInt(r.month) === currentMonth || parseInt(r.month) === nextMonth) income = baseAmt;
+                                                const m = parseInt(r.month);
+                                                if (m === currentMonth && r.day >= currentDay) income += baseAmt;
+                                                if (m === nextMonth) income += baseAmt;
                                             } else {
-                                                income = baseAmt * 2;
+                                                // 下個月薪水一定有
+                                                income += baseAmt;
+                                                // 本月薪水如果還沒發 (例如 25號發，今天 10號)，就算入
+                                                if (r.day >= currentDay) income += baseAmt;
                                             }
                                             return sum + income;
                                         }, 0);
 
-                                        // 4. 每月固定投資額 (需換算匯率)
+                                        // 4. 原有的投資與儲蓄計算
                                         const investAccounts = accounts.filter(a => a.type === 'invest').map(a => a.id);
                                         const monthlyFixedInvest = recurring
-                                            .filter(r => r.type === 'transfer' && investAccounts.includes(r.toAccountId) && (!r.endDate || r.endDate > todayStr))
+                                            .filter(r => r.type === 'transfer' && investAccounts.includes(r.toAccountId) && (!r.endDate || r.endDate > getLocalToday()))
                                             .reduce((sum, r) => {
-                                                // 轉帳金額通常是以「轉出帳戶」的幣別為準
                                                 const rate = getRate(r.accountId);
                                                 return sum + (parseFloat(r.amount) * rate);
                                             }, 0);
                                         
-                                        const monthlySavings = stats.inc - stats.exp; // stats 裡面的 inc/exp 已經是換算過台幣的了
+                                        const monthlySavings = stats.inc - stats.exp;
                                         const extraSavings = monthlySavings > 0 ? monthlySavings : 0;
                                         const projectedAsset = extraSavings * 12 * 20 * 1.5; 
                                         
@@ -1339,21 +1352,22 @@
                                         let aiIcon = "bot";
                                         let aiColor = "bg-sky-50 text-sky-600 border-sky-100";
 
+                                        // 邏輯：(現有現金 + 未來會進來的錢) < (未來要付的錢)
                                         if ((liquidAssets + futureFixedIncome) < futureFixedCost) {
                                             const gap = futureFixedCost - (liquidAssets + futureFixedIncome);
-                                            aiMessage = `⚠️ 現金流警報！您的流動資產加上預期收入，仍不足支付未來 2 個月的固定開銷 (缺口約 $${safeNum(gap)})。建議暫停部分投資轉帳，優先保留現金。`;
+                                            aiMessage = `⚠️ 現金流警報！即使加上即將入帳的薪資，未來 60 天仍有資金缺口約 $${safeNum(gap)}。建議暫緩大額消費或投資轉帳。`;
                                             aiIcon = "alert-triangle";
                                             aiColor = "bg-orange-50 text-orange-600 border-orange-200";
                                         } else if (monthlySavings < 0) {
-                                            aiMessage = `本月透支 ${Math.abs(monthlySavings).toLocaleString()} 元！建議檢視「${analysisData.chart[0]?.name || '最大'}」類別的支出，若能減少 10%，退休目標可提早達成。`;
+                                            aiMessage = `本月目前透支 ${Math.abs(monthlySavings).toLocaleString()} 元。建議檢視「${analysisData.chart[0]?.name || '最大'}」類別支出。若這只是月初繳費高峰，且下方「預期收入」足夠覆蓋，則無需過度擔心。`;
                                             aiIcon = "alert-circle";
                                             aiColor = "bg-rose-50 text-rose-600 border-rose-200";
                                         } else if (monthlyFixedInvest > 0) {
-                                            aiMessage = `太棒了！每月固定投資 $${safeNum(monthlyFixedInvest)} (約當台幣) 且現金流健康。若本月結餘 $${safeNum(monthlySavings)} 也投入，20 年後資產可再增 $${Math.round(projectedAsset/10000)} 萬！`;
+                                            aiMessage = `財務狀況健康！每月固定投資約 $${safeNum(monthlyFixedInvest)}。現金流充足 (含預期收入)，若本月結餘也投入，20 年後資產可再增 $${Math.round(projectedAsset/10000)} 萬！`;
                                             aiIcon = "trending-up";
                                             aiColor = "bg-emerald-50 text-emerald-600 border-emerald-200";
                                         } else {
-                                            aiMessage = `現金流預估健康，且本月已存下 $${safeNum(monthlySavings)}。建議設定「固定轉帳」將這筆錢自動轉入投資帳戶，讓複利幫您縮短退休年限。`;
+                                            aiMessage = `現金流預估健康。建議設定「固定轉帳」將每月結餘自動轉入投資帳戶，讓複利幫您縮短退休年限。`;
                                             aiIcon = "lightbulb";
                                             aiColor = "bg-amber-50 text-amber-600 border-amber-200";
                                         }
@@ -1365,11 +1379,11 @@
                                                     <h4 className="font-bold text-sm mb-1 flex items-center gap-2">AI 資產顧問 <span className="text-[10px] bg-white/60 px-1.5 rounded uppercase tracking-wider border border-black/5">Gemini 3.1</span></h4>
                                                     <p className="text-xs leading-relaxed opacity-90">{aiMessage}</p>
                                                     
-                                                    {/* 數據儀表板 */}
+                                                    {/* 數據儀表板 - 改名為「未來60天」以消除歧義 */}
                                                     <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-bold opacity-80">
                                                         <span className="bg-white/60 px-2 py-1 rounded">流動資產: ${safeNum(liquidAssets)}</span>
-                                                        <span className="bg-white/60 px-2 py-1 rounded">預期收入(2月): ${safeNum(futureFixedIncome)}</span>
-                                                        <span className="bg-white/60 px-2 py-1 rounded">預估支出(2月): ${safeNum(futureFixedCost)}</span>
+                                                        <span className="bg-white/60 px-2 py-1 rounded">預期收入(未來60天): ${safeNum(futureFixedIncome)}</span>
+                                                        <span className="bg-white/60 px-2 py-1 rounded">預估支出(未來60天): ${safeNum(futureFixedCost)}</span>
                                                     </div>
                                                 </div>
                                             </div>
