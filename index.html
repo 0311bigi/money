@@ -1372,33 +1372,63 @@
                                         const today = new Date();
                                         const currentMonth = today.getMonth() + 1; 
 
-                                        // 1. 計算本月「尚未發生」的固定扣款 (精準預估)
+                                        // 1. 計算本月「尚未發生」的固定扣款
                                         const thisMonthRemainingFixedCost = recurring.reduce((sum, r) => {
                                             if ((r.type !== 'expense' && r.type !== 'transfer') || (r.endDate && r.endDate < getLocalToday())) return sum;
                                             if (r.lastCreatedMonth === getLocalMonth()) return sum; 
                                             if (r.frequency === 'yearly' && parseInt(r.month) !== currentMonth) return sum;
-
                                             const rate = getRate(r.accountId);
                                             return sum + (parseFloat(r.amount) * rate);
                                         }, 0);
 
-                                        // 2. 輔助函數：取得特定關鍵字的銀行餘額與信用卡負債
-                                        const getBankBal = (keyword, exclude = null) => accounts.filter(a => a.type === 'bank' && a.name.includes(keyword) && (!exclude || !a.name.includes(exclude)) && !a.isArchived).reduce((s, a) => s + (stats.bals[a.id] || 0) * getRate(a.id), 0);
-                                        const getCardDebt = (keyword) => accounts.filter(a => a.type === 'credit' && a.name.includes(keyword) && !a.isArchived).reduce((s, a) => s + Math.max(0, -(stats.bals[a.id] || 0)) * getRate(a.id), 0);
-                                        const getOtherCardDebt = () => accounts.filter(a => a.type === 'credit' && !a.name.includes('台新') && !a.name.includes('匯豐') && !a.name.includes('大戶') && !a.isArchived).reduce((s, a) => s + Math.max(0, -(stats.bals[a.id] || 0)) * getRate(a.id), 0);
+                                        // 2. 🔥 新增：精準計算「本期已出帳卡費」
+                                        const calculateBilledDebt = (acc) => {
+                                            // 取得當前總負債 (正數)
+                                            const currentTotalDebt = Math.max(0, -(stats.bals[acc.id] || 0));
+                                            
+                                            // 找出上一次結帳日
+                                            const cDay = parseInt(acc.closingDay || 27);
+                                            const todayObj = new Date();
+                                            let lastClosingDate;
+                                            if (todayObj.getDate() > cDay) {
+                                                lastClosingDate = new Date(todayObj.getFullYear(), todayObj.getMonth(), cDay);
+                                            } else {
+                                                lastClosingDate = new Date(todayObj.getFullYear(), todayObj.getMonth() - 1, cDay);
+                                            }
+                                            const lastClosingDateStr = `${lastClosingDate.getFullYear()}-${String(lastClosingDate.getMonth()+1).padStart(2,'0')}-${String(lastClosingDate.getDate()).padStart(2,'0')}`;
+                                            
+                                            // 計算結帳日之後「新增」的未出帳消費
+                                            let unbilledNewDebt = 0;
+                                            transactions.forEach(t => {
+                                                if (t.date > lastClosingDateStr && t.accountId === acc.id) {
+                                                    // 只計算增加負債的交易 (支出、代墊、轉出)
+                                                    if (t.type === 'expense' || t.type === 'advance' || t.type === 'transfer') {
+                                                        unbilledNewDebt += parseFloat(t.amount) || 0;
+                                                    }
+                                                }
+                                            });
+                                            
+                                            // 本期應繳 = 總負債 - 未出帳消費 (若已繳清則為 0)
+                                            return Math.max(0, currentTotalDebt - unbilledNewDebt);
+                                        };
 
-                                        // 3. 執行卡費檢查邏輯 (比較餘額與卡費)
+                                        // 3. 輔助函數：取得銀行餘額與「本期」卡費
+                                        const getBankBal = (keyword, exclude = null) => accounts.filter(a => a.type === 'bank' && a.name.includes(keyword) && (!exclude || !a.name.includes(exclude)) && !a.isArchived).reduce((s, a) => s + (stats.bals[a.id] || 0) * getRate(a.id), 0);
+                                        const getCardBilledDebt = (keyword) => accounts.filter(a => a.type === 'credit' && a.name.includes(keyword) && !a.isArchived).reduce((s, a) => s + calculateBilledDebt(a) * getRate(a.id), 0);
+                                        const getOtherCardBilledDebt = () => accounts.filter(a => a.type === 'credit' && !a.name.includes('台新') && !a.name.includes('匯豐') && !a.name.includes('大戶') && !a.isArchived).reduce((s, a) => s + calculateBilledDebt(a) * getRate(a.id), 0);
+
+                                        // 4. 執行卡費檢查邏輯 (比較餘額與本期卡費)
                                         const tsBank = getBankBal('台新');
-                                        const tsDebt = getCardDebt('台新');
+                                        const tsDebt = getCardBilledDebt('台新');
                                         
                                         const hsbcBank = getBankBal('匯豐');
-                                        const hsbcDebt = getCardDebt('匯豐');
+                                        const hsbcDebt = getCardBilledDebt('匯豐');
                                         
                                         const dawhoBank = getBankBal('大戶');
-                                        const dawhoDebt = getCardDebt('大戶');
+                                        const dawhoDebt = getCardBilledDebt('大戶');
                                         
                                         const spBank = getBankBal('永豐', '大戶'); // 永豐但排除大戶
-                                        const otherDebt = getOtherCardDebt(); // 剩下的所有信用卡
+                                        const otherDebt = getOtherCardBilledDebt(); // 剩下的所有信用卡
 
                                         const cardWarnings = [];
                                         if (tsDebt > 0 && tsBank < tsDebt) cardWarnings.push(`台新缺 $${safeNum(tsDebt - tsBank)}`);
@@ -1406,17 +1436,16 @@
                                         if (dawhoDebt > 0 && dawhoBank < dawhoDebt) cardWarnings.push(`大戶缺 $${safeNum(dawhoDebt - dawhoBank)}`);
                                         if (otherDebt > 0 && spBank < otherDebt) cardWarnings.push(`永豐缺 $${safeNum(otherDebt - spBank)}`);
 
-                                        // 4. 月底生存紅線：大戶與永豐總和
+                                        // 5. 月底生存紅線：大戶與永豐總和
                                         const mainPower = dawhoBank + spBank; 
 
-                                        // 5. 抓取「上個月」的總收入作為基準 (trendData index 4 是上個月)
+                                        // 6. 抓取「上個月」的總收入作為基準
                                         const lastMonthIncome = trendData[4] ? trendData[4].income : 0;
                                         const estimatedCurrentIncome = Math.max(stats.inc, lastMonthIncome);
                                         
                                         const isTemporarilyNegative = stats.inc < stats.exp && stats.exp <= estimatedCurrentIncome;
                                         const isTrulyOverdrawn = stats.exp > estimatedCurrentIncome;
 
-                                        // 6. 計算底部顯示的流動資產總和
                                         const liquidAssets = accounts
                                             .filter(a => (a.type === 'cash' || a.type === 'bank' || a.type === 'electronic') && !a.isArchived)
                                             .reduce((sum, a) => {
@@ -1435,7 +1464,7 @@
                                             aiIcon = "alert-octagon";
                                             aiColor = "bg-rose-50 text-rose-600 border-rose-200 ring-1 ring-rose-200";
                                         } else if (cardWarnings.length > 0) {
-                                            aiMessage = `⚠️ 卡費轉帳提醒：以下專戶餘額不足以扣繳卡費，請記得於 25 日前安排轉帳 👉 ${cardWarnings.join('、')}。`;
+                                            aiMessage = `⚠️ 卡費轉帳提醒：以下專戶餘額不足以扣繳「本期卡費」，請記得於繳款日前安排轉帳 👉 ${cardWarnings.join('、')}。`;
                                             aiIcon = "bell-ring";
                                             aiColor = "bg-orange-50 text-orange-600 border-orange-200";
                                         } else if (isTrulyOverdrawn) {
@@ -1447,7 +1476,7 @@
                                             aiIcon = "coffee";
                                             aiColor = "bg-blue-50 text-blue-600 border-blue-200";
                                         } else {
-                                            aiMessage = `✅ 財務狀態極佳！各專戶餘額充足，卡費防護網正常運作中。保持目前的儲蓄節奏，離退休目標會越來越近！`;
+                                            aiMessage = `✅ 財務狀態極佳！各專戶餘額充足，本期卡費防護網正常運作中。保持目前的儲蓄節奏，離退休目標會越來越近！`;
                                             aiIcon = "check-circle";
                                             aiColor = "bg-emerald-50 text-emerald-600 border-emerald-200";
                                         }
