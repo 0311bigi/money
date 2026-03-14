@@ -27,12 +27,10 @@
 
     <script>
         (function() {
-            // 1. 取得絕對路徑，解決 Manifest 警告問題
             var currentUrl = window.location.href.split('?')[0]; 
             var baseUrl = currentUrl.substring(0, currentUrl.lastIndexOf('/') + 1) || currentUrl;
             var iconUrl = new URL('money.png', baseUrl).href; 
 
-            // 2. 動態生成 Manifest (使用 Base64 Data URI 避免 Blob 路徑問題)
             var manifest = {
                 "name": "退休計劃",
                 "short_name": "退休計劃",
@@ -49,7 +47,6 @@
             var manifestDataUrl = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(manifest));
             document.getElementById('my-manifest').setAttribute('href', manifestDataUrl);
 
-            // 3. 註冊虛擬 Service Worker (Chrome 安裝 PWA 的必要條件)
             if ('serviceWorker' in navigator) {
                 window.addEventListener('load', function() {
                     const swCode = `
@@ -87,11 +84,9 @@
     <div id="root"></div>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
-        // 🔥 已更新：引入 Firebase v11 的離線快取 API
         import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, onSnapshot, addDoc, deleteDoc, updateDoc, setDoc, query, where, writeBatch, getDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
         import { getAuth, signInAnonymously, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
         
-        // 🔥 已更新：將新的 API 加入 window 物件
         window.FirebaseSDK = { 
             initializeApp, getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, 
             collection, doc, onSnapshot, addDoc, deleteDoc, updateDoc, setDoc, query, where, writeBatch, getDoc, 
@@ -234,7 +229,6 @@
                             fbRef.current = window.FirebaseSDK;
                             authRef.current = window.FirebaseSDK.getAuth(app);
                             
-                            // 🔥 已修復：使用 v10+ 支援的離線快取寫法
                             try {
                                 const db = window.FirebaseSDK.initializeFirestore(app, {
                                     localCache: window.FirebaseSDK.persistentLocalCache({
@@ -593,14 +587,6 @@
             return { type:'success', icon:'thumbs-up', text:`預算剩餘 $${(monthlyBudget - stats.exp).toLocaleString()}` };
         }, [stats, monthlyBudget]);
         
-        const retirementInsight = useMemo(() => {
-            const savings = stats.inc - stats.exp;
-            const target = (retirement && retirement.monthlyExpense) ? parseFloat(retirement.monthlyExpense) : 0;
-            if (savings < 0) return { icon: 'alert-triangle', text: `⚠️ 本月透支，資產縮水中！`, color: 'text-rose-400', bg: 'bg-rose-500/20' };
-            if (savings < target) return { icon: 'target', text: `🎯 離月存額目標還有差距，加油！`, color: 'text-amber-400', bg: 'bg-amber-500/20' };
-            return { icon: 'party-popper', text: `🚀 太棒了！儲蓄力超標！`, color: 'text-emerald-400', bg: 'bg-emerald-500/20' };
-        }, [stats, retirement, currentLedgerMonth]);
-
         const analysisData = useMemo(() => {
             const bookTxs = transactions.filter(tx => (tx.bookId || 'main') === currentBook.id);
             let filteredTx = [];
@@ -1367,12 +1353,62 @@
                                         <p className="text-xs text-stone-400 flex justify-between"><span>目標 ${safeNum(Math.round(retireProgress.target/10000))} 萬</span><span>剩 {retireProgress.years} 年</span></p>
                                         <div className={`mt-3 p-2 rounded-lg bg-white/10 text-xs flex items-start gap-2 ${retirementInsight.color}`}><Icon name={retirementInsight.icon} size={14} className="mt-0.5"/><span>{retirementInsight.text}</span></div>
                                     </div>
+                                    
+                                    {/* 🔥 已修復：AI 專屬財務管家 (含自訂帳戶防衛邏輯) */}
                                     {(() => {
                                         const getRate = (accId) => {
                                             const acc = accounts.find(a => a.id === accId);
                                             return acc ? (exchangeRates[acc.currency] || 1) : 1;
                                         };
 
+                                        const today = new Date();
+                                        const currentMonth = today.getMonth() + 1; 
+
+                                        // 1. 計算本月「尚未發生」的固定扣款 (精準預估)
+                                        const thisMonthRemainingFixedCost = recurring.reduce((sum, r) => {
+                                            if ((r.type !== 'expense' && r.type !== 'transfer') || (r.endDate && r.endDate < getLocalToday())) return sum;
+                                            if (r.lastCreatedMonth === getLocalMonth()) return sum; 
+                                            if (r.frequency === 'yearly' && parseInt(r.month) !== currentMonth) return sum;
+
+                                            const rate = getRate(r.accountId);
+                                            return sum + (parseFloat(r.amount) * rate);
+                                        }, 0);
+
+                                        // 2. 輔助函數：取得特定關鍵字的銀行餘額與信用卡負債
+                                        const getBankBal = (keyword, exclude = null) => accounts.filter(a => a.type === 'bank' && a.name.includes(keyword) && (!exclude || !a.name.includes(exclude)) && !a.isArchived).reduce((s, a) => s + (stats.bals[a.id] || 0) * getRate(a.id), 0);
+                                        const getCardDebt = (keyword) => accounts.filter(a => a.type === 'credit' && a.name.includes(keyword) && !a.isArchived).reduce((s, a) => s + Math.max(0, -(stats.bals[a.id] || 0)) * getRate(a.id), 0);
+                                        const getOtherCardDebt = () => accounts.filter(a => a.type === 'credit' && !a.name.includes('台新') && !a.name.includes('匯豐') && !a.name.includes('大戶') && !a.isArchived).reduce((s, a) => s + Math.max(0, -(stats.bals[a.id] || 0)) * getRate(a.id), 0);
+
+                                        // 3. 執行卡費檢查邏輯 (比較餘額與卡費)
+                                        const tsBank = getBankBal('台新');
+                                        const tsDebt = getCardDebt('台新');
+                                        
+                                        const hsbcBank = getBankBal('匯豐');
+                                        const hsbcDebt = getCardDebt('匯豐');
+                                        
+                                        const dawhoBank = getBankBal('大戶');
+                                        const dawhoDebt = getCardDebt('大戶');
+                                        
+                                        const spBank = getBankBal('永豐', '大戶'); // 永豐但排除大戶
+                                        const otherDebt = getOtherCardDebt(); // 剩下的所有信用卡
+
+                                        const cardWarnings = [];
+                                        if (tsDebt > 0 && tsBank < tsDebt) cardWarnings.push(`台新缺 $${safeNum(tsDebt - tsBank)}`);
+                                        if (hsbcDebt > 0 && hsbcBank < hsbcDebt) cardWarnings.push(`匯豐缺 $${safeNum(hsbcDebt - hsbcBank)}`);
+                                        if (dawhoDebt > 0 && dawhoBank < dawhoDebt) cardWarnings.push(`大戶缺 $${safeNum(dawhoDebt - dawhoBank)}`);
+                                        if (otherDebt > 0 && spBank < otherDebt) cardWarnings.push(`永豐缺 $${safeNum(otherDebt - spBank)}`);
+
+                                        // 4. 月底生存紅線：大戶與永豐總和
+                                        const mainPower = dawhoBank + spBank; 
+
+                                        // 5. 抓取「上個月」的總收入作為基準 (trendData index 4 是上個月)
+                                        const lastMonthIncome = trendData[4] ? trendData[4].income : 0;
+                                        const estimatedCurrentIncome = Math.max(stats.inc, lastMonthIncome);
+                                        
+                                        const isTemporarilyNegative = stats.inc < stats.exp && stats.exp <= estimatedCurrentIncome;
+                                        const isTrulyOverdrawn = stats.exp > estimatedCurrentIncome;
+
+                                        // 6. 計算底部顯示的流動資產總和
                                         const liquidAssets = accounts
                                             .filter(a => (a.type === 'cash' || a.type === 'bank' || a.type === 'electronic') && !a.isArchived)
                                             .reduce((sum, a) => {
@@ -1381,98 +1417,50 @@
                                                 return sum + (rawBal * rate);
                                             }, 0);
 
-                                        const today = new Date();
-                                        const currentDay = today.getDate();       
-                                        const currentMonth = today.getMonth() + 1; 
-                                        const nextMonth = (currentMonth % 12) + 1; 
-
-                                        const futureFixedCost = recurring.reduce((sum, r) => {
-                                            if ((r.type !== 'expense' && r.type !== 'transfer') || (r.endDate && r.endDate < getLocalToday())) return sum;
-                                            
-                                            const rate = getRate(r.accountId);
-                                            const baseAmt = parseFloat(r.amount) * rate;
-                                            let cost = 0;
-
-                                            if (r.frequency === 'yearly') {
-                                                const m = parseInt(r.month);
-                                                if (m === currentMonth && r.day >= currentDay) cost += baseAmt;
-                                                if (m === nextMonth) cost += baseAmt;
-                                            } else {
-                                                cost += baseAmt;
-                                                if (r.day >= currentDay) cost += baseAmt;
-                                            }
-                                            return sum + cost;
-                                        }, 0);
-
-                                        const futureFixedIncome = recurring.reduce((sum, r) => {
-                                            if (r.type !== 'income' || (r.endDate && r.endDate < getLocalToday())) return sum;
-                                            
-                                            const rate = getRate(r.accountId);
-                                            const baseAmt = parseFloat(r.amount) * rate;
-                                            let income = 0;
-
-                                            if (r.frequency === 'yearly') {
-                                                const m = parseInt(r.month);
-                                                if (m === currentMonth && r.day >= currentDay) income += baseAmt;
-                                                if (m === nextMonth) income += baseAmt;
-                                            } else {
-                                                income += baseAmt;
-                                                if (r.day >= currentDay) income += baseAmt;
-                                            }
-                                            return sum + income;
-                                        }, 0);
-
-                                        const investAccounts = accounts.filter(a => a.type === 'invest').map(a => a.id);
-                                        const monthlyFixedInvest = recurring
-                                            .filter(r => r.type === 'transfer' && investAccounts.includes(r.toAccountId) && (!r.endDate || r.endDate > getLocalToday()))
-                                            .reduce((sum, r) => {
-                                                const rate = getRate(r.accountId);
-                                                return sum + (parseFloat(r.amount) * rate);
-                                            }, 0);
-                                        
-                                        const monthlySavings = stats.inc - stats.exp;
-                                        const extraSavings = monthlySavings > 0 ? monthlySavings : 0;
-                                        const projectedAsset = extraSavings * 12 * 20 * 1.5; 
-                                        
+                                        // --- 判斷要顯示哪一種層級的顧問訊息 ---
                                         let aiMessage = "";
                                         let aiIcon = "bot";
                                         let aiColor = "bg-sky-50 text-sky-600 border-sky-100";
 
-                                        if ((liquidAssets + futureFixedIncome) < futureFixedCost) {
-                                            const gap = futureFixedCost - (liquidAssets + futureFixedIncome);
-                                            aiMessage = `⚠️ 現金流警報！即使加上即將入帳的薪資，未來 60 天仍有資金缺口約 $${safeNum(gap)}。建議暫緩大額消費或投資轉帳。`;
-                                            aiIcon = "alert-triangle";
+                                        if (thisMonthRemainingFixedCost > 0 && mainPower < thisMonthRemainingFixedCost) {
+                                            aiMessage = `🛑 生存紅線警告：永豐與大戶餘額 ($${safeNum(mainPower)}) 已不夠支付本月剩餘的固定帳單 ($${safeNum(thisMonthRemainingFixedCost)})！在月底薪水入帳前，請絕對停止非必要花費！`;
+                                            aiIcon = "alert-octagon";
+                                            aiColor = "bg-rose-50 text-rose-600 border-rose-200 ring-1 ring-rose-200";
+                                        } else if (cardWarnings.length > 0) {
+                                            aiMessage = `⚠️ 卡費轉帳提醒：以下專戶餘額不足以扣繳卡費，請記得於 25 日前安排轉帳 👉 ${cardWarnings.join('、')}。`;
+                                            aiIcon = "bell-ring";
                                             aiColor = "bg-orange-50 text-orange-600 border-orange-200";
-                                        } else if (monthlySavings < 0) {
-                                            aiMessage = `本月目前透支 ${Math.abs(monthlySavings).toLocaleString()} 元。建議檢視「${analysisData.chart[0]?.name || '最大'}」類別支出。若這只是月初繳費高峰，且下方「預期收入」足夠覆蓋，則無需過度擔心。`;
-                                            aiIcon = "alert-circle";
+                                        } else if (isTrulyOverdrawn) {
+                                            aiMessage = `📉 本月花費 ($${safeNum(stats.exp)}) 已超出「上月總收入」水準！建議立刻檢視「${analysisData.chart[0]?.name || '最大'}」類別，控制後續支出。`;
+                                            aiIcon = "alert-triangle";
                                             aiColor = "bg-rose-50 text-rose-600 border-rose-200";
-                                        } else if (monthlyFixedInvest > 0) {
-                                            aiMessage = `財務狀況健康！每月固定投資約 $${safeNum(monthlyFixedInvest)}。現金流充足 (含預期收入)，若本月結餘也投入，20 年後資產可再增 $${Math.round(projectedAsset/10000)} 萬！`;
-                                            aiIcon = "trending-up";
-                                            aiColor = "bg-emerald-50 text-emerald-600 border-emerald-200";
+                                        } else if (isTemporarilyNegative) {
+                                            aiMessage = `目前帳面暫時透支 $${safeNum(stats.exp - stats.inc)}，但以您平時的薪資水準來看，資金仍在安全範圍，請安心生活。`;
+                                            aiIcon = "coffee";
+                                            aiColor = "bg-blue-50 text-blue-600 border-blue-200";
                                         } else {
-                                            aiMessage = `現金流預估健康。建議設定「固定轉帳」將每月結餘自動轉入投資帳戶，讓複利幫您縮短退休年限。`;
-                                            aiIcon = "lightbulb";
-                                            aiColor = "bg-amber-50 text-amber-600 border-amber-200";
+                                            aiMessage = `✅ 財務狀態極佳！各專戶餘額充足，卡費防護網正常運作中。保持目前的儲蓄節奏，離退休目標會越來越近！`;
+                                            aiIcon = "check-circle";
+                                            aiColor = "bg-emerald-50 text-emerald-600 border-emerald-200";
                                         }
 
                                         return (
-                                            <div className={`p-4 rounded-xl border shadow-sm flex gap-3 ${aiColor}`}>
+                                            <div className={`p-4 rounded-xl border shadow-sm flex gap-3 transition-colors ${aiColor}`}>
                                                 <div className="shrink-0 mt-1"><Icon name={aiIcon} size={24} /></div>
                                                 <div>
-                                                    <h4 className="font-bold text-sm mb-1 flex items-center gap-2">AI 資產顧問 <span className="text-[10px] bg-white/60 px-1.5 rounded uppercase tracking-wider border border-black/5">Gemini 3.1</span></h4>
+                                                    <h4 className="font-bold text-sm mb-1 flex items-center gap-2">AI 專屬財務管家 <span className="text-[10px] bg-white/60 px-1.5 rounded uppercase tracking-wider border border-black/5">客製化</span></h4>
                                                     <p className="text-xs leading-relaxed opacity-90">{aiMessage}</p>
                                                     
                                                     <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-bold opacity-80">
                                                         <span className="bg-white/60 px-2 py-1 rounded">流動資產: ${safeNum(liquidAssets)}</span>
-                                                        <span className="bg-white/60 px-2 py-1 rounded">預期收入(未來60天): ${safeNum(futureFixedIncome)}</span>
-                                                        <span className="bg-white/60 px-2 py-1 rounded">預估支出(未來60天): ${safeNum(futureFixedCost)}</span>
+                                                        <span className="bg-white/60 px-2 py-1 rounded">大戶+永豐活水: ${safeNum(mainPower)}</span>
+                                                        <span className="bg-white/60 px-2 py-1 rounded">本月剩餘固定扣款: ${safeNum(thisMonthRemainingFixedCost)}</span>
                                                     </div>
                                                 </div>
                                             </div>
                                         );
                                     })()}
+                                    
                                     {(() => {
                                         const activeAccounts = accounts.filter(a => !a.isArchived);
                                         const archivedAccounts = accounts.filter(a => a.isArchived);
