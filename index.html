@@ -6,7 +6,7 @@
     
     <title>退休計劃</title>
     
-    <link rel="manifest" id="my-manifest"> <link rel="icon" href="money.png">     <link rel="apple-touch-icon" href="money.png"> <meta name="apple-mobile-web-app-capable" content="yes">
+    <link rel="manifest" id="my-manifest"> <link rel="icon" href="money.png">      <link rel="apple-touch-icon" href="money.png"> <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="退休計劃">
     
@@ -27,30 +27,41 @@
 
     <script>
         (function() {
-            // 設定你的圖片路徑
-            var iconUrl = 'money.png'; 
+            // 1. 取得絕對路徑，解決 Manifest 警告問題
+            var currentUrl = window.location.href.split('?')[0]; 
+            var baseUrl = currentUrl.substring(0, currentUrl.lastIndexOf('/') + 1) || currentUrl;
+            var iconUrl = new URL('money.png', baseUrl).href; 
 
-            // 動態生成 Manifest (全螢幕關鍵)
+            // 2. 動態生成 Manifest (使用 Base64 Data URI 避免 Blob 路徑問題)
             var manifest = {
                 "name": "退休計劃",
                 "short_name": "退休計劃",
-                "start_url": ".",
-                "display": "standalone", // 這一行讓它變成全螢幕 APP
+                "start_url": currentUrl,
+                "display": "standalone",
                 "background_color": "#F8FAFC",
                 "theme_color": "#F8FAFC",
                 "orientation": "portrait",
-                "icons": [{
-                    "src": iconUrl,
-                    "sizes": "192x192 512x512", // 宣告這張圖適用於各種尺寸
-                    "type": "image/png"
-                }]
+                "icons": [
+                    { "src": iconUrl, "sizes": "192x192", "type": "image/png" },
+                    { "src": iconUrl, "sizes": "512x512", "type": "image/png" }
+                ]
             };
-            
-            // 將 Manifest 物件轉為 Blob URL 放入 href
-            var stringManifest = JSON.stringify(manifest);
-            var blob = new Blob([stringManifest], {type: 'application/json'});
-            var manifestURL = URL.createObjectURL(blob);
-            document.getElementById('my-manifest').setAttribute('href', manifestURL);
+            var manifestDataUrl = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(manifest));
+            document.getElementById('my-manifest').setAttribute('href', manifestDataUrl);
+
+            // 3. 註冊虛擬 Service Worker (Chrome 安裝 PWA 的必要條件)
+            if ('serviceWorker' in navigator) {
+                window.addEventListener('load', function() {
+                    const swCode = `
+                        self.addEventListener('install', (e) => self.skipWaiting());
+                        self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
+                        self.addEventListener('fetch', (e) => {}); 
+                    `;
+                    const blob = new Blob([swCode], { type: 'application/javascript' });
+                    const swUrl = URL.createObjectURL(blob);
+                    navigator.serviceWorker.register(swUrl).catch(() => {});
+                });
+            }
         })();
     </script>
     
@@ -76,16 +87,17 @@
     <div id="root"></div>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
-        // 1. 在這裡多引入 enableIndexedDbPersistence
-        import { getFirestore, collection, doc, onSnapshot, addDoc, deleteDoc, updateDoc, setDoc, query, where, writeBatch, getDoc, enableIndexedDbPersistence } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+        // 🔥 已更新：引入 Firebase v11 的離線快取 API
+        import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, onSnapshot, addDoc, deleteDoc, updateDoc, setDoc, query, where, writeBatch, getDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
         import { getAuth, signInAnonymously, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
         
-        window.FirebaseSDK = { initializeApp, getFirestore, collection, doc, onSnapshot, addDoc, deleteDoc, updateDoc, setDoc, query, where, writeBatch, getDoc, getAuth, signInAnonymously, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut, enableIndexedDbPersistence };
+        // 🔥 已更新：將新的 API 加入 window 物件
+        window.FirebaseSDK = { 
+            initializeApp, getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, 
+            collection, doc, onSnapshot, addDoc, deleteDoc, updateDoc, setDoc, query, where, writeBatch, getDoc, 
+            getAuth, signInAnonymously, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut 
+        };
         window.isFirebaseSDKReady = true;
-
-        // 2. 自動啟動快取功能 (放在這裡確保 SDK 載入後立即執行)
-        // 注意：這段邏輯我們稍後會在主程式的 useEffect 裡呼叫，或者讓 React 抓到 SDK 後處理。
-        // 但為了保險，我們把啟動邏輯直接寫在 React 元件掛載時 (原本的 init 函數裡)。
     </script>
 
 <script type="text/babel">
@@ -176,17 +188,18 @@
         const [txForm, setTxForm] = useState({ type:'expense', amount:'', toAmount:'', category:'', subCategory:'', accountId:'', toAccountId:'', debtor:'', date:getLocalToday(), note:'', currency:'TWD' });
         const [editingTx, setEditingTx] = useState(null);
         const [accForm, setAccForm] = useState({ name:'', type:'cash', currency:'TWD', initialBalance:'', includeInTotal: true, isArchived: false });
-        const [showArchived, setShowArchived] = useState(false); // 控制停用區塊是否折疊
+        const [showArchived, setShowArchived] = useState(false); 
         const [recForm, setRecForm] = useState({ name:'', type:'expense', amount:'', frequency:'monthly', month:1, day:1, accountId:'', toAccountId:'', category:'', subCategory:'', startDate: getLocalToday(), endDate:'' });
-		const [retireForm, setRetireForm] = useState({});
+        const [retireForm, setRetireForm] = useState({});
+        const [newCatForm, setNewCatForm] = useState({ name: '', type: 'expense', icon: 'tag' });
         
         const [isAdvanceSplit, setIsAdvanceSplit] = useState(false);
         const [splitData, setSplitData] = useState({ advances:[{debtor:'',amount:''}], principalAmount:'', sourceAccountId:'' });
         const [installment, setInstallment] = useState({ enabled:false, periods:3 });
         const [settleToAccount, setSettleToAccount] = useState('');
-		const [settleDate, setSettleDate] = useState(getLocalToday());
+        const [settleDate, setSettleDate] = useState(getLocalToday());
         const [newMarketValue, setNewMarketValue] = useState('');
-		const [closingRate, setClosingRate] = useState('');
+        const [closingRate, setClosingRate] = useState('');
         const [holdingForm, setHoldingForm] = useState([]);
         const [editingCategoryType, setEditingCategoryType] = useState('expense');
         const [editingCategory, setEditingCategory] = useState(null);
@@ -220,19 +233,19 @@
                             const app = window.FirebaseSDK.initializeApp(cfg);
                             fbRef.current = window.FirebaseSDK;
                             authRef.current = window.FirebaseSDK.getAuth(app);
-                            const db = window.FirebaseSDK.getFirestore(app);
-                            dbRef.current = db;
-
-                            // 🔥 新增：啟動離線快取
-                            // 這行會讓資料存在手機裡，第二次打開就不會耗費讀取額度
-                            window.FirebaseSDK.enableIndexedDbPersistence(db)
-                                .catch((err) => {
-                                    if (err.code == 'failed-precondition') {
-                                        console.log('多個分頁同時開啟，快取僅在第一個分頁有效');
-                                    } else if (err.code == 'unimplemented') {
-                                        console.log('瀏覽器不支援此功能');
-                                    }
+                            
+                            // 🔥 已修復：使用 v10+ 支援的離線快取寫法
+                            try {
+                                const db = window.FirebaseSDK.initializeFirestore(app, {
+                                    localCache: window.FirebaseSDK.persistentLocalCache({
+                                        tabManager: window.FirebaseSDK.persistentMultipleTabManager()
+                                    })
                                 });
+                                dbRef.current = db;
+                            } catch (err) {
+                                dbRef.current = window.FirebaseSDK.getFirestore(app);
+                                console.log('離線快取啟動失敗或已在其他分頁啟動:', err.message);
+                            }
 
                             setSdkReady(true);
                         } else { setNeedConfig(true); setLoading(false); }
@@ -297,35 +310,28 @@
             };
 
             const checkRecurring = async (recs) => {
-                const m = getLocalMonth(); // 格式 "YYYY-MM"
+                const m = getLocalMonth();
                 const todayStr = getLocalToday();
                 const todayDateObj = new Date();
                 const currentDay = todayDateObj.getDate();
-                const currentMonth = todayDateObj.getMonth() + 1; // JS 月份是 0-11，轉成 1-12
+                const currentMonth = todayDateObj.getMonth() + 1;
                 
                 const batch = fbRef.current.writeBatch(dbRef.current);
                 let hasUpd = false;
                 
                 recs.forEach(r => {
-                    // 1. 檢查日期範圍
                     if (r.startDate && todayStr < r.startDate) return;
                     if (r.endDate && todayStr > r.endDate) return;
 
-                    // 2. 判斷是否該執行
                     let shouldRun = false;
-                    const freq = r.frequency || 'monthly'; // 預設為每月 (相容舊資料)
+                    const freq = r.frequency || 'monthly'; 
 
                     if (freq === 'monthly') {
-                        // 每月：只要日期到了就執行
                         if (currentDay >= r.day) shouldRun = true;
                     } else if (freq === 'yearly') {
-                        // 每年：月份對 + 日期到了 才執行
-                        // 注意：r.month 存的是 1-12
                         if (currentMonth === parseInt(r.month) && currentDay >= r.day) shouldRun = true;
                     }
 
-                    // 3. 檢查這個週期是否已經產生過 (利用 lastCreatedMonth 判斷)
-                    // 如果這個月已經產生過 (lastCreatedMonth === m)，就不再產生
                     if (shouldRun && r.lastCreatedMonth !== m) {
                         const newTx = {
                             type: r.type,
@@ -383,12 +389,11 @@
             setLoading(false);
             return () => unsubs.forEach(u => u());
         }, [user, sdkReady]);
-        // --- 新增：背景自動抓取台銀匯率 ---
+        
         useEffect(() => {
             if (!user || !sdkReady) return;
             const autoFetchRates = async () => {
                 try {
-                    // 呼叫你的 GAS 爬蟲 API
                     const res = await fetch('https://script.google.com/macros/s/AKfycbxWOtO6F00m_OAu0zc1hzQn4F2BieA1ZXAF7Bv_8i5L5KfeN9kV07C_6JFH9DuJ_M4/exec');
                     const data = await res.json();
                     
@@ -396,7 +401,6 @@
                         const newRates = { ...exchangeRates };
                         let hasUpdate = false;
                         
-                        // 將抓到的匯率與現有支援的幣別比對
                         CURRENCIES.forEach(c => {
                             if (data[c] && data[c] !== newRates[c]) {
                                 newRates[c] = data[c];
@@ -404,7 +408,6 @@
                             }
                         });
                         
-                        // 如果有更新，就寫入 Firebase 儲存
                         if (hasUpdate) {
                             setExchangeRates(newRates);
                             fbRef.current.setDoc(fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid, 'settings', 'rates'), newRates, {merge: true});
@@ -416,8 +419,8 @@
             };
             
             autoFetchRates();
-        }, [user, sdkReady]); // 每次登入或重整網頁時觸發一次
-			
+        }, [user, sdkReady]); 
+            
         const saveData = async (col, data, id=null) => {
             const ref = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
             if (id) await fbRef.current.updateDoc(fbRef.current.doc(ref, col, id), data);
@@ -469,8 +472,7 @@
             setModal(null);
             setSettleTargetTx(null);
         };
-		
-		// 💡 新增：還原還款功能 (刪除還款紀錄 + 恢復欠款狀態)
+        
         const handleUndoRepayment = async (tx) => {
             if (!confirm(`確定要還原這筆對「${tx.note.replace('收回代墊: ', '')}」的還款嗎？\n\n1. 此還款紀錄將被刪除。\n2. 對應的代墊欠款將恢復為「未結清」狀態。`)) return;
             
@@ -478,10 +480,8 @@
                 const batch = fbRef.current.writeBatch(dbRef.current);
                 const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
                 
-                // 1. 刪除還款紀錄
                 batch.delete(fbRef.current.doc(userRef, 'transactions', tx.id));
                 
-                // 2. 如果有關聯的代墊交易，將其狀態改回未結清
                 if (tx.relatedTxId) {
                     batch.update(fbRef.current.doc(userRef, 'transactions', tx.relatedTxId), { isSettled: false });
                 }
@@ -493,24 +493,54 @@
                 alert("還原失敗，請檢查網路連線");
             }
         };
-		
-        // --- 新增：取得換算後的台幣金額 ---
-        // --- 修正：優先使用交易當下鎖定的匯率 ---
+        
+        const handleReorder = async (tx, direction) => {
+            try {
+                if (!accountDetailData || !accountDetailData.displayList) return;
+                
+                const list = accountDetailData.displayList;
+                const idx = list.findIndex(t => t.id === tx.id);
+                if (idx === -1) return;
+
+                const targetIdx = idx + direction;
+                if (targetIdx < 0 || targetIdx >= list.length) return;
+
+                const targetTx = list[targetIdx];
+
+                if (targetTx.date !== tx.date) {
+                    alert("只能調整「同一天」內的交易順序");
+                    return;
+                }
+
+                const txTime = tx.createdAt || new Date(tx.date + 'T12:00:00Z').toISOString();
+                const targetTime = targetTx.createdAt || new Date(targetTx.date + 'T12:00:01Z').toISOString();
+
+                const batch = fbRef.current.writeBatch(dbRef.current);
+                const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
+
+                batch.update(fbRef.current.doc(userRef, 'transactions', tx.id), { createdAt: targetTime });
+                batch.update(fbRef.current.doc(userRef, 'transactions', targetTx.id), { createdAt: txTime });
+
+                await batch.commit();
+            } catch(e) {
+                console.error("排序失敗:", e);
+                alert("排序發生錯誤，請檢查網路連線。");
+            }
+        };
+        
         const getBaseAmt = (tx, accs, rates) => {
             const amt = parseFloat(tx.amount) || 0;
             const acc = accs.find(a => a.id === tx.accountId);
             if (!acc || !acc.currency || acc.currency === 'TWD') return amt;
             
-            // 💡 關鍵：如果這筆交易有存當下的匯率，就用當下的；如果沒有(舊資料)，才退回用全域匯率
             const appliedRate = tx.exchangeRate || rates[acc.currency] || 1;
             return amt * appliedRate;
         };
-		
+        
         const stats = useMemo(() => {
         const bals = {}; 
         accounts.forEach(a => {
             let init = parseFloat(a.initialBalance) || 0;
-            // 如果是信用卡或應付帳款，且期初輸入為正數，自動轉為負債 (負數)
             if ((a.type === 'credit' || a.type === 'payable') && init > 0) {
                 init = -init;
             }
@@ -533,7 +563,7 @@
                 
                 const txDate = String(t.date || '');
                 if ((t.bookId||'main') === currentBook.id && txDate.startsWith(currentLedgerMonth)) {
-                    const baseAmt = getBaseAmt(t, accounts, exchangeRates); // 換算成台幣
+                    const baseAmt = getBaseAmt(t, accounts, exchangeRates); 
                     if (t.type==='income') inc += baseAmt;
                     if (t.type==='expense') exp += baseAmt;
                 }
@@ -542,6 +572,7 @@
             return { bals, advanceMap, debt, totalAsset, inc, exp };
         
         }, [accounts, transactions, currentLedgerMonth, currentBook, exchangeRates]);
+        
         const retireProgress = useMemo(() => {
             const r = retirement || {};
             const age = r.currentAge || 30;
@@ -557,7 +588,6 @@
 
         const homeInsight = useMemo(() => {
             const saving = stats.inc - stats.exp;
-            // 修正：移除文字裡的 emoji，因為介面上已經有 Icon 元件了
             if (saving < 0) return { type:'danger', icon:'alert-triangle', text:`透支 $${Math.abs(saving).toLocaleString()}` };
             if (stats.exp > monthlyBudget) return { type:'danger', icon:'alert-triangle', text:`超出預算 $${(stats.exp - monthlyBudget).toLocaleString()}` };
             return { type:'success', icon:'thumbs-up', text:`預算剩餘 $${(monthlyBudget - stats.exp).toLocaleString()}` };
@@ -582,14 +612,13 @@
             }
 
             const targetTx = filteredTx.filter(t => t.type === analysisType);
-            // ✅ 改用 getBaseAmt 計算總額
             const total = targetTx.reduce((sum, t) => sum + getBaseAmt(t, accounts, exchangeRates), 0);
             
             const breakdown = {};
             targetTx.forEach(t => {
                 const cat = t.category;
                 const sub = t.subCategory || '無子類別';
-                const baseAmt = getBaseAmt(t, accounts, exchangeRates); // ✅ 換算成台幣
+                const baseAmt = getBaseAmt(t, accounts, exchangeRates); 
                 
                 if (!breakdown[cat]) breakdown[cat] = { total: 0, subs: {}, txs: [] };
                 breakdown[cat].total += baseAmt;
@@ -639,7 +668,7 @@
                 const m = String(t.date || '').substring(0, 7);
                 const match = last6Months.find(d => d.month === m);
                 if (match) {
-                    const baseAmt = getBaseAmt(t, accounts, exchangeRates); // ✅ 換算成台幣
+                    const baseAmt = getBaseAmt(t, accounts, exchangeRates); 
                     if (t.type === 'income') match.income += baseAmt;
                     else if (t.type === 'expense') match.expense += baseAmt;
                 }
@@ -656,7 +685,6 @@
             });
 
             let balance = parseFloat(viewingAccount.initialBalance) || 0;
-            // 如果是信用卡或應付帳款，明細起始點同樣視為負債
             if ((viewingAccount.type === 'credit' || viewingAccount.type === 'payable') && balance > 0) {
                 balance = -balance;
             }
@@ -675,21 +703,16 @@
                 return { ...t, balanceSnapshot: balance, change, displayType: type };
             });
 
-            // 🔥 核心修改：判斷篩選區間
             let monthTxs = [];
-            let cycleRange = null; // 用來存顯示用的日期範圍
+            let cycleRange = null;
 
             if (viewingAccount.type === 'credit' && viewingAccount.closingDay) {
-                // 信用卡邏輯：依結帳日計算週期
                 const cDay = parseInt(viewingAccount.closingDay);
                 const [y, m] = accountDetailMonth.split('-').map(Number);
                 
-                // 本期結帳日 (例如選 3月，結帳日27 -> 3/27)
                 const endDate = new Date(y, m - 1, cDay);
-                // 上期結帳日+1天 (例如選 3月，上期2/27 -> 2/28)
                 const startDate = new Date(y, m - 2, cDay + 1);
                 
-                // 轉成 YYYY-MM-DD 字串做比較
                 const toStr = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
                 const sStr = toStr(startDate);
                 const eStr = toStr(endDate);
@@ -698,7 +721,6 @@
                 
                 monthTxs = withBalance.filter(t => t.date >= sStr && t.date <= eStr);
             } else {
-                // 一般帳戶邏輯：自然月
                 monthTxs = withBalance.filter(t => String(t.date || '').startsWith(accountDetailMonth));
             }
 
@@ -717,7 +739,6 @@
             return { displayList, stats: { mIncome, mExpense, mTrans }, currentBalance: balance, cycleRange };
         }, [viewingAccount, transactions, accountDetailMonth]);
 
-        // 💡 核心修復：改為 async 函數，並等待所有寫入完成
         const handleTxSave = async () => { 
             const amt = parseFloat(txForm.amount);
             if (!amt) { alert('請輸入金額'); return; }
@@ -735,7 +756,6 @@
                 finalCategory = '轉帳';
             }
             
-            // 編輯時保留原始建立時間，新增時使用現在時間
             const createdAt = editingTx ? editingTx.createdAt : new Date().toISOString();
             
             const selectedAcc = accounts.find(a => a.id === txForm.accountId);
@@ -751,22 +771,19 @@
             };
             
             try {
-                // 🛑 情況 A：編輯現有交易 (包含修正日期)
                 if (editingTx) {
-                    await saveData('transactions', base, editingTx.id); // 💡 加上 await 確保更新完成
+                    await saveData('transactions', base, editingTx.id);
                     setModal(null);
                     setEditingTx(null);
                     return;
                 }
 
-                // 🛑 情況 B：使用待收抵扣
                 if (isOffset && offsetTargetId) {
                     await saveData('transactions', { ...base, accountId: OFFSET_ACCOUNT_ID, note: `抵扣: ${txForm.note}` }); 
                     await saveData('transactions', { type: 'repayment', amount: amt, accountId: OFFSET_ACCOUNT_ID, relatedTxId: offsetTargetId, date: txForm.date, bookId: currentBook.id, note: `抵扣支出 (${finalCategory})`, createdAt: new Date().toISOString() }); 
                     setModal(null); return;
                 }
 
-                // 🛑 情況 C：分期付款
                 if (txForm.type === 'expense' && installment.enabled) {
                     const p = parseInt(installment.periods);
                     const per = Math.round(amt / p);
@@ -774,26 +791,22 @@
                     for (let i = 0; i < p; i++) {
                         promises.push(saveData('transactions', { ...base, amount: (i===0?amt-(per*p)+per:per), date: addMonths(txForm.date, i), note: `${txForm.note} (${i+1}/${p})`, createdAt: new Date().toISOString() }));
                     }
-                    await Promise.all(promises); // 💡 等待全部分期寫入
+                    await Promise.all(promises); 
                 
-                // 🛑 情況 D：多人代墊 (最容易掉資料的地方)
                 } else if (txForm.type === 'expense' && isAdvanceSplit) {
                         let advTotal = 0;
                         const promises = []; 
                         splitData.advances.forEach(a => {
                             if (a.debtor && a.amount) {
-                                // 建立代墊單據
                                 promises.push(saveData('transactions', { ...base, type:'advance', amount: parseFloat(a.amount), debtor: a.debtor, isSettled: false, note: `代墊: ${txForm.note}`, createdAt: new Date().toISOString() }));
                                 advTotal += parseFloat(a.amount);
                             }
                         });
                         const myExp = amt - advTotal;
-                        // 如果有自付額，建立一筆支出
                         if (myExp > 0) promises.push(saveData('transactions', { ...base, amount: myExp, createdAt: new Date().toISOString() }));
                         
-                        await Promise.all(promises); // 💡 關鍵！確保所有代墊都存進去才關閉
+                        await Promise.all(promises); 
                 
-                // 🛑 情況 E：投資分拆
                 } else if (txForm.type === 'income' && isAdvanceSplit) {
                     const principal = parseFloat(splitData.principalAmount) || 0;
                     const gain = amt - principal;
@@ -802,7 +815,6 @@
                     if (gain !== 0) promises.push(saveData('transactions', { ...base, type: 'income', amount: gain, category: txForm.category || '投資', note: `投資獲利`, createdAt: new Date().toISOString() }));
                     await Promise.all(promises);
                 } else {
-                    // 🛑 情況 F：普通單筆交易
                     await saveData('transactions', base);
                 }
                 setModal(null);
@@ -817,18 +829,14 @@
             
             const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
             
-            // 移除 id 欄位以免寫入資料庫
             const { id, ...data } = recForm;
             
             if (recForm.id) {
-                // 編輯模式：更新現有文件
                 await fbRef.current.updateDoc(fbRef.current.doc(userRef, 'recurring', recForm.id), data);
             } else {
-                // 新增模式：建立新文件
                 await fbRef.current.addDoc(fbRef.current.collection(userRef, 'recurring'), { ...data, createdAt: new Date().toISOString() });
             }
             
-            // 重置表單 (保留原本的開啟狀態，方便繼續新增)
             setRecForm({ name:'', type:'expense', amount:'', frequency:'monthly', month:1, day:1, accountId:'', toAccountId:'', category:'', subCategory:'', startDate: getLocalToday(), endDate:'' });
         };
         
@@ -927,7 +935,6 @@
             
             let finalMarketValue = parseFloat(newMarketValue) || 0;
             if (holdingForm.length > 0) {
-                // 💡 直接加總每檔的「參考市值 (price)」，股數 (qty) 純粹留作紀錄
                 finalMarketValue = holdingForm.reduce((sum, h) => sum + (parseFloat(h.price)||0), 0);
             }
 
@@ -936,7 +943,7 @@
             await fbRef.current.updateDoc(accRef, { 
                 marketValue: finalMarketValue,
                 holdings: holdingForm,
-                customRate: null // 清除之前測試時可能存下的專屬匯率
+                customRate: null 
             }); 
             setModal(null); 
         };
@@ -980,20 +987,18 @@
         const changeDetailMonthStep = (step) => { const [y, m] = accountDetailMonth.split('-').map(Number); const date = new Date(y, m - 1 + step, 1); setAccountDetailMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`); };
         const handleEditMainCategoryName = async (newName) => { if (!newName || !editingCategory) return; const newCats = { ...categories }; const catIdx = newCats[editingCategoryType].findIndex(c => c.name === editingCategory.name); if (catIdx > -1) { newCats[editingCategoryType][catIdx].name = newName; setCategories(newCats); setEditingCategory(newCats[editingCategoryType][catIdx]); } };
         const handleEditMainCategoryIcon = async (newIcon) => { if (!editingCategory) return; const newCats = { ...categories }; const catIdx = newCats[editingCategoryType].findIndex(c => c.name === editingCategory.name); if (catIdx > -1) { newCats[editingCategoryType][catIdx].icon = newIcon; setCategories(newCats); setEditingCategory(newCats[editingCategoryType][catIdx]); } }; 
-        const openAccModalCorrect = (acc = null) => { if (acc) { setEditTarget(acc); setAccForm({ name: acc.name, type: acc.type, currency: acc.currency || 'TWD', initialBalance: acc.initialBalance || '', includeInTotal: acc.includeInTotal !== false, isArchived: acc.isArchived || false, closingDay: acc.closingDay || '27', paymentDueDay: acc.paymentDueDay || '15', autoPaymentAccount: acc.autoPaymentAccount || '', holidayAdjustment: acc.holidayAdjustment || 'defer', autoPayment: acc.autoPayment || false }); } else { setEditTarget(null); setAccForm({ name: '', type: 'cash', currency: 'TWD', initialBalance: '', includeInTotal: true, isArchived: false, closingDay: '27', paymentDueDay: '15', autoPaymentAccount: '', holidayAdjustment: 'defer', autoPayment: false }); } setModal('acc'); };        const handleExport = () => {
+        const openAccModalCorrect = (acc = null) => { if (acc) { setEditTarget(acc); setAccForm({ name: acc.name, type: acc.type, currency: acc.currency || 'TWD', initialBalance: acc.initialBalance || '', includeInTotal: acc.includeInTotal !== false, isArchived: acc.isArchived || false, closingDay: acc.closingDay || '27', paymentDueDay: acc.paymentDueDay || '15', autoPaymentAccount: acc.autoPaymentAccount || '', holidayAdjustment: acc.holidayAdjustment || 'defer', autoPayment: acc.autoPayment || false }); } else { setEditTarget(null); setAccForm({ name: '', type: 'cash', currency: 'TWD', initialBalance: '', includeInTotal: true, isArchived: false, closingDay: '27', paymentDueDay: '15', autoPaymentAccount: '', holidayAdjustment: 'defer', autoPayment: false }); } setModal('acc'); };        
+        const handleExport = () => {
                 if (transactions.length === 0) {
                     alert("目前沒有交易紀錄可匯出");
                     return;
                 }
 
-                // 1. 彈出視窗詢問使用者要匯出哪一年
                 const currentYear = new Date().getFullYear().toString();
                 const exportYear = window.prompt("請輸入要匯出的年份 (例如: 2024)\n若要匯出「全部紀錄」，請清空輸入框並按確定：", currentYear);
 
-                // 如果使用者按取消，就中止
                 if (exportYear === null) return;
 
-                // 2. 根據輸入的年份過濾資料
                 const filteredTransactions = exportYear.trim() !== "" 
                     ? transactions.filter(t => String(t.date).startsWith(exportYear.trim()))
                     : transactions;
@@ -1003,7 +1008,6 @@
                     return;
                 }
 
-                // 3. 整理資料格式
                 const data = filteredTransactions.map(t => {
                     const acc = accounts.find(a => a.id === t.accountId);
                     const toAcc = t.toAccountId ? accounts.find(a => a.id === t.toAccountId) : null;
@@ -1028,7 +1032,6 @@
                     };
                 });
 
-                // 4. 建立 Excel
                 const wb = XLSX.utils.book_new();
                 const ws = XLSX.utils.json_to_sheet(data);
                 
@@ -1040,10 +1043,9 @@
 
                 XLSX.utils.book_append_sheet(wb, ws, "交易紀錄");
                 
-                // 根據匯出條件命名檔案
                 const fileNamePrefix = exportYear.trim() !== "" ? `${exportYear}年` : '全部';
                 XLSX.writeFile(wb, `雲端帳本_${fileNamePrefix}_${getLocalToday()}.xlsx`);
-        }; // ✅ 確保只有這一個結束括號
+        }; 
 
         const handleImportClick = () => { if (fileInputRef.current) fileInputRef.current.click(); };
         const handleImportFile = async (e) => {
@@ -1112,7 +1114,6 @@
         if (needConfig) return <div className="min-h-screen bg-stone-50 flex items-center justify-center p-6"><div className="bg-white max-w-md w-full p-8 rounded-3xl shadow-xl"><div className="flex justify-center mb-6 text-stone-800"><Icon name="settings" size={48}/></div><h2 className="text-xl font-bold text-center mb-4">輸入 Firebase 設定</h2><textarea className="w-full h-48 p-4 bg-stone-50 rounded-xl text-xs font-mono mb-4 border" placeholder='{ "apiKey": "..." }' value={configInput} onChange={e=>setConfigInput(e.target.value)}/><button onClick={handleSaveConfig} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold">儲存</button></div></div>;
         if (!sdkReady || loading) return <div className="h-screen flex items-center justify-center bg-stone-50"><Icon name="loader-2" className="animate-spin text-stone-500" size={40}/></div>;
 
-        // 準備安全的渲染變數，避免 JSX 裡面邏輯出錯
         const safeBudget = monthlyBudget ? parseFloat(monthlyBudget) : 0;
         const safeRetireAge = (retirement && retirement.retireAge) ? retirement.retireAge : 60;
         const safeRetireExpense = (retirement && retirement.monthlyExpense) ? parseFloat(retirement.monthlyExpense) : 30000;
@@ -1132,7 +1133,6 @@
                                         <button onClick={()=>changeDetailMonthStep(-1)} className="p-2 hover:bg-stone-50 rounded-lg text-stone-400"><Icon name="chevron-left"/></button>
                                         <div className="text-center">
                                             <div className="font-bold text-stone-800 text-lg">{accountDetailMonth.replace('-','年 ')}月</div>
-                                            {/* 🔥 新增：如果是信用卡，顯示帳單週期範圍 */}
                                             {accountDetailData?.cycleRange && (
                                                 <div className="text-[10px] text-stone-400 font-bold bg-stone-100 px-2 py-0.5 rounded-full mt-1">
                                                     帳單週期: {accountDetailData.cycleRange}
@@ -1142,7 +1142,6 @@
                                         <button onClick={()=>changeDetailMonthStep(1)} className="p-2 hover:bg-stone-50 rounded-lg text-stone-400"><Icon name="chevron-right"/></button>
                                     </div>
                                 </div>
-                                {/* 帳戶資訊卡片 (含一鍵繳款功能) */}
                                 <div className="bg-stone-800 rounded-xl p-6 text-white shadow-lg">
                                     <div className="flex justify-between items-start mb-4">
                                         <div>
@@ -1150,28 +1149,23 @@
                                             <h2 className="text-3xl font-black tabular-nums">${safeNum(accountDetailData && accountDetailData.currentBalance)}</h2>
                                         </div>
                                         
-                                        {/* 🔥 新增：信用卡一鍵繳款按鈕 (最終版：抓取當期帳單的「期末餘額」) */}
                                         {viewingAccount.type === 'credit' && (
                                             <button
                                                 onClick={() => {
-                                                    // 1. 智慧選擇轉出帳戶 (優先找永豐 -> 銀行 -> 現金)
                                                     const defaultBank = accounts.find(a => a.name.includes('永豐') && !a.isArchived) 
                                                                      || accounts.find(a => a.type === 'bank' && !a.isArchived)
                                                                      || accounts.find(a => a.type === 'cash' && !a.isArchived);
 
-                                                    // 2. 🔥 修正金額計算邏輯：抓取顯示列表中「最新一筆」(即該週期最後一天) 的餘額快照
-                                                    // 因為 displayList 已經是依日期倒序 (新->舊) 排列，所以 index 0 就是這期帳單的「最後一筆交易」
                                                     let billAmount = 0;
                                                     if (accountDetailData && accountDetailData.displayList && accountDetailData.displayList.length > 0) {
-                                                        // 直接拿這一筆交易當下的「餘額快照」並取絕對值
                                                         billAmount = Math.abs(accountDetailData.displayList[0].balanceSnapshot);
                                                     }
                                                     
                                                     setTxForm({
                                                         type: 'transfer',
                                                         amount: billAmount, 
-                                                        accountId: defaultBank ? defaultBank.id : '', // 自動帶入永豐
-                                                        toAccountId: viewingAccount.id, // 轉入(本卡)
+                                                        accountId: defaultBank ? defaultBank.id : '', 
+                                                        toAccountId: viewingAccount.id, 
                                                         category: '轉帳', 
                                                         subCategory: '',
                                                         date: getLocalToday(),
@@ -1195,7 +1189,7 @@
                                     </div>
                                 </div>
                                 <div className="space-y-2">
-                                    <h3 className="text-xs font-bold text-stone-400 uppercase ml-1">交易明細 (含餘額)</h3>
+                                    <h3 className="text-xs font-bold text-stone-400 uppercase ml-1 mt-4">交易明細 (含餘額)</h3>
                                     {accountDetailData?.displayList.length === 0 ? <div className="text-center py-10 text-stone-400 text-sm">本月無交易</div> : 
                                         (() => {
                                             const groups = [];
@@ -1211,33 +1205,65 @@
                                                         <span className="text-xs font-bold text-stone-400">{getDayOfWeek(group.date)}</span>
                                                     </div>
                                                     <div className="bg-white rounded-xl shadow-sm border border-stone-100 overflow-hidden">
-                                                        {group.txs.map((tx, idx) => (
-                                                            <div key={tx.id} onClick={() => openTxModal(tx.type, tx)} className={`p-3 flex justify-between items-center cursor-pointer hover:bg-stone-50 ${idx !== group.txs.length - 1 ? 'border-b border-stone-100' : ''}`}>
-                                                                <div className="flex items-center gap-3">
-                                                                    {/* 💡 修改：還款用綠色 */}
-                                                                    <div className={`p-2 rounded-lg ${tx.displayType==='income' || tx.type==='repayment' ?'bg-emerald-100 text-emerald-600': tx.displayType==='expense'?'bg-rose-100 text-rose-600':'bg-stone-100 text-stone-600'}`}><Icon name={getCategoryIcon(tx.category, tx.type)} size={18}/></div>
-                                                                    <div>
-                                                                        <p className="font-bold text-sm text-stone-800 flex items-center flex-wrap gap-1">
-                                                                            {tx.type === 'advance' ? `代墊: ${tx.debtor}` : (tx.category || '未分類')}
-                                                                            {tx.subCategory && <span className="text-xs text-stone-400">({tx.subCategory})</span>}
-                                                                            {/* 代墊狀態標籤 */}
-                                                                            {tx.type === 'advance' && (() => {
-                                                                                const adv = stats.advanceMap[tx.id];
-                                                                                if (!adv) return null;
-                                                                                const isCleared = adv.remaining <= 0.1 || adv.isSettled;
-                                                                                return isCleared ? <span className="text-[10px] bg-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded font-bold shadow-sm">✅ 已收清</span> : <span className="text-[10px] bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded font-bold shadow-sm">待收 ${safeNum(adv.remaining)}</span>;
-                                                                            })()}
-                                                                        </p>
-                                                                        {tx.note && <p className="text-xs text-stone-500 mt-0.5">{tx.note}</p>}
+                                                        {group.txs.map((tx, idx) => {
+                                                            return (
+                                                                <div key={tx.id} onClick={() => openTxModal(tx.type, tx)} className={`p-3 flex justify-between items-center cursor-pointer hover:bg-stone-50 group ${idx !== group.txs.length - 1 ? 'border-b border-stone-100' : ''}`}>
+                                                                    <div className="flex items-center gap-3 overflow-hidden">
+                                                                        <div className={`p-2 rounded-lg shrink-0 ${tx.displayType==='income' || tx.type==='repayment' ?'bg-emerald-100 text-emerald-600': tx.displayType==='expense'?'bg-rose-100 text-rose-600':'bg-stone-100 text-stone-600'}`}>
+                                                                            <Icon name={getCategoryIcon(tx.category, tx.type)} size={18}/>
+                                                                        </div>
+                                                                        <div className="min-w-0">
+                                                                            <p className="font-bold text-sm text-stone-800 truncate">
+                                                                                {tx.type === 'advance' ? `代墊: ${tx.debtor}` : (tx.category || '未分類')}
+                                                                                {tx.subCategory && <span className="text-xs text-stone-400 ml-1 font-normal">({tx.subCategory})</span>}
+                                                                            </p>
+                                                                            <p className="text-xs text-stone-500 truncate mt-0.5">{tx.note}</p>
+                                                                        </div>
+                                                                    </div>
+                                                                    
+                                                                    <div className="flex items-center gap-3">
+                                                                        <div className="text-right">
+                                                                            <p className={`font-bold tabular-nums ${tx.change > 0 ? 'text-emerald-600' : 'text-stone-800'}`}>{tx.change > 0 ? '+' : ''}{safeNum(tx.change)}</p>
+                                                                            <p className="text-[10px] text-stone-400 font-bold mt-0.5 tabular-nums">餘額: ${safeNum(tx.balanceSnapshot)}</p>
+                                                                        </div>
+
+                                                                        <div className="flex flex-col gap-1 pl-2 border-l border-stone-100">
+                                                                            {group.txs.length > 1 && (
+                                                                                <div className="flex flex-col">
+                                                                                    <button 
+                                                                                        onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleReorder(tx, -1); }} 
+                                                                                        disabled={idx === 0}
+                                                                                        className={`p-0.5 rounded ${idx === 0 ? 'text-stone-200' : 'text-stone-400 hover:text-blue-500 hover:bg-blue-50'}`}
+                                                                                    >
+                                                                                        <Icon name="chevron-up" size={14}/>
+                                                                                    </button>
+                                                                                    <button 
+                                                                                        onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleReorder(tx, 1); }} 
+                                                                                        disabled={idx === group.txs.length - 1}
+                                                                                        className={`p-0.5 rounded ${idx === group.txs.length - 1 ? 'text-stone-200' : 'text-stone-400 hover:text-blue-500 hover:bg-blue-50'}`}
+                                                                                    >
+                                                                                        <Icon name="chevron-down" size={14}/>
+                                                                                    </button>
+                                                                                </div>
+                                                                            )}
+                                                                            
+                                                                            <button 
+                                                                                onClick={(e) => { 
+                                                                                    e.stopPropagation(); 
+                                                                                    e.preventDefault(); 
+                                                                                    if(window.confirm('確定要刪除這筆交易嗎？\n(將直接影響餘額計算)')) {
+                                                                                        deleteData('transactions', tx.id);
+                                                                                    }
+                                                                                }} 
+                                                                                className="p-1 text-stone-300 hover:text-red-500 hover:bg-red-50 rounded"
+                                                                            >
+                                                                                <Icon name="trash-2" size={14}/>
+                                                                            </button>
+                                                                        </div>
                                                                     </div>
                                                                 </div>
-                                                                <div className="text-right">
-                                                                    {/* 💡 修改：還款用綠色 + */}
-                                                                    <p className={`font-bold tabular-nums ${tx.change > 0 ? 'text-emerald-600' : 'text-stone-800'}`}>{tx.change > 0 ? '+' : ''}{safeNum(tx.change)}</p>
-                                                                    <p className="text-[10px] text-stone-400 font-bold mt-0.5 tabular-nums">餘額: ${safeNum(tx.balanceSnapshot)}</p>
-                                                                </div>
-                                                            </div>
-                                                        ))}
+                                                            );
+                                                        })}
                                                     </div>
                                                 </div>
                                             ));
@@ -1284,17 +1310,15 @@
                                                                 accName += ` ➝ ${toAcc ? toAcc.name : '未知'}`;
                                                             }
                                                             
-                                                            // 💡 修改：讓「還款」的左邊框線也是綠色
                                                             let rowStyle = "bg-white border-l-4 border-white"; 
                                                             if (tx.type === 'expense') rowStyle = "bg-white border-l-4 border-rose-500";
                                                             if (tx.type === 'income' || tx.type === 'repayment') rowStyle = "bg-emerald-50 border-l-4 border-emerald-500";
                                                             if (tx.type === 'transfer') rowStyle = "bg-slate-50 border-l-4 border-slate-400";
                                                             if (tx.type === 'advance') rowStyle = "bg-indigo-50 border-l-4 border-indigo-500";
-                                                        
+                                                            
                                                             return (
                                                                 <div key={tx.id} onClick={() => openTxModal(tx.type, tx)} className={`p-4 flex justify-between items-center cursor-pointer hover:bg-stone-50 transition-colors ${idx !== txs.length - 1 ? 'border-b border-stone-100' : ''} ${rowStyle}`}>
                                                                     <div className="flex items-center gap-3">
-                                                                        {/* 💡 修改：圖示背景色，還款用綠色 */}
                                                                         <div className={`p-2.5 rounded-xl ${tx.type==='income' || tx.type==='repayment' ?'bg-emerald-100 text-emerald-600': tx.type==='advance'?'bg-indigo-100 text-indigo-600' : 'bg-stone-100 text-stone-600'}`}><Icon name={getCategoryIcon(tx.category, tx.type)} size={18}/></div>
                                                                         <div><p className="font-bold text-sm text-stone-800">{tx.type === 'advance' ? `代墊: ${tx.debtor}` : (tx.category || '未分類')} {tx.subCategory && <span className="text-xs text-stone-400 ml-1">({tx.subCategory})</span>}</p><p className="text-xs text-stone-400 mt-0.5">{tx.note}</p></div>
                                                                     </div>
@@ -1304,7 +1328,6 @@
                                                                             const baseAmt = getBaseAmt(tx, accounts, exchangeRates);
                                                                             return (
                                                                                 <div className="text-right">
-                                                                                    {/* 💡 修改：還款金額顏色變綠色，且加上 + 號 */}
                                                                                     <p className={`font-bold tabular-nums ${tx.type==='income' || tx.type==='repayment' ?'text-emerald-600':'text-stone-800'}`}>
                                                                                         {tx.type==='income' || tx.type==='repayment' ?'+':'-'}{safeNum(isForeign ? baseAmt : tx.amount)}
                                                                                     </p>
@@ -1314,7 +1337,6 @@
                                                                         })()}
                                                                         <div className="flex items-center justify-end gap-1 mt-0.5">
                                                                             <span className="text-xs text-stone-400 bg-black/5 px-1.5 py-0.5 rounded">{accName}</span>
-                                                                            {/* 💡 修改：如果是還款，顯示還原按鈕；否則顯示刪除按鈕 */}
                                                                             {tx.type === 'repayment' ? (
                                                                                 <button onClick={(e)=>{e.stopPropagation(); handleUndoRepayment(tx);}} className="text-stone-300 hover:text-blue-500 p-1" title="還原此筆還款"><Icon name="rotate-ccw" size={14}/></button>
                                                                             ) : (
@@ -1345,15 +1367,12 @@
                                         <p className="text-xs text-stone-400 flex justify-between"><span>目標 ${safeNum(Math.round(retireProgress.target/10000))} 萬</span><span>剩 {retireProgress.years} 年</span></p>
                                         <div className={`mt-3 p-2 rounded-lg bg-white/10 text-xs flex items-start gap-2 ${retirementInsight.color}`}><Icon name={retirementInsight.icon} size={14} className="mt-0.5"/><span>{retirementInsight.text}</span></div>
                                     </div>
-									{/* --- AI 顧問分析卡片 (V3 精準版：只計算尚未發生的收支) --- */}
                                     {(() => {
-                                        // 輔助：取得帳戶匯率
                                         const getRate = (accId) => {
                                             const acc = accounts.find(a => a.id === accId);
                                             return acc ? (exchangeRates[acc.currency] || 1) : 1;
                                         };
 
-                                        // 1. 計算流動資產
                                         const liquidAssets = accounts
                                             .filter(a => (a.type === 'cash' || a.type === 'bank' || a.type === 'electronic') && !a.isArchived)
                                             .reduce((sum, a) => {
@@ -1362,15 +1381,12 @@
                                                 return sum + (rawBal * rate);
                                             }, 0);
 
-                                        // 時間參數
                                         const today = new Date();
-                                        const currentDay = today.getDate();       // 今天幾號 (1-31)
-                                        const currentMonth = today.getMonth() + 1; // 目前月份 (1-12)
-                                        const nextMonth = (currentMonth % 12) + 1; // 下個月
+                                        const currentDay = today.getDate();       
+                                        const currentMonth = today.getMonth() + 1; 
+                                        const nextMonth = (currentMonth % 12) + 1; 
 
-                                        // 2. 精準預測「未來」固定支出 (本月剩餘 + 下個月全額)
                                         const futureFixedCost = recurring.reduce((sum, r) => {
-                                            // 過濾掉非支出類，或已過期的設定
                                             if ((r.type !== 'expense' && r.type !== 'transfer') || (r.endDate && r.endDate < getLocalToday())) return sum;
                                             
                                             const rate = getRate(r.accountId);
@@ -1378,23 +1394,16 @@
                                             let cost = 0;
 
                                             if (r.frequency === 'yearly') {
-                                                // 每年：只看月份是否對應
                                                 const m = parseInt(r.month);
-                                                // 如果是本月，且日期還沒到 -> 要算
                                                 if (m === currentMonth && r.day >= currentDay) cost += baseAmt;
-                                                // 如果是下個月 -> 要算
                                                 if (m === nextMonth) cost += baseAmt;
                                             } else {
-                                                // 每月：
-                                                // 1. 下個月一定會扣
                                                 cost += baseAmt;
-                                                // 2. 本月如果日期還沒到，也要算 (例如今天 1號，5號的房租就算入；今天 20號，5號的房租就不算)
                                                 if (r.day >= currentDay) cost += baseAmt;
                                             }
                                             return sum + cost;
                                         }, 0);
 
-                                        // 3. 精準預測「未來」固定收入 (本月未領 + 下個月全額)
                                         const futureFixedIncome = recurring.reduce((sum, r) => {
                                             if (r.type !== 'income' || (r.endDate && r.endDate < getLocalToday())) return sum;
                                             
@@ -1407,15 +1416,12 @@
                                                 if (m === currentMonth && r.day >= currentDay) income += baseAmt;
                                                 if (m === nextMonth) income += baseAmt;
                                             } else {
-                                                // 下個月薪水一定有
                                                 income += baseAmt;
-                                                // 本月薪水如果還沒發 (例如 25號發，今天 10號)，就算入
                                                 if (r.day >= currentDay) income += baseAmt;
                                             }
                                             return sum + income;
                                         }, 0);
 
-                                        // 4. 原有的投資與儲蓄計算
                                         const investAccounts = accounts.filter(a => a.type === 'invest').map(a => a.id);
                                         const monthlyFixedInvest = recurring
                                             .filter(r => r.type === 'transfer' && investAccounts.includes(r.toAccountId) && (!r.endDate || r.endDate > getLocalToday()))
@@ -1428,12 +1434,10 @@
                                         const extraSavings = monthlySavings > 0 ? monthlySavings : 0;
                                         const projectedAsset = extraSavings * 12 * 20 * 1.5; 
                                         
-                                        // 5. 判斷建議內容
                                         let aiMessage = "";
                                         let aiIcon = "bot";
                                         let aiColor = "bg-sky-50 text-sky-600 border-sky-100";
 
-                                        // 邏輯：(現有現金 + 未來會進來的錢) < (未來要付的錢)
                                         if ((liquidAssets + futureFixedIncome) < futureFixedCost) {
                                             const gap = futureFixedCost - (liquidAssets + futureFixedIncome);
                                             aiMessage = `⚠️ 現金流警報！即使加上即將入帳的薪資，未來 60 天仍有資金缺口約 $${safeNum(gap)}。建議暫緩大額消費或投資轉帳。`;
@@ -1460,7 +1464,6 @@
                                                     <h4 className="font-bold text-sm mb-1 flex items-center gap-2">AI 資產顧問 <span className="text-[10px] bg-white/60 px-1.5 rounded uppercase tracking-wider border border-black/5">Gemini 3.1</span></h4>
                                                     <p className="text-xs leading-relaxed opacity-90">{aiMessage}</p>
                                                     
-                                                    {/* 數據儀表板 - 改名為「未來60天」以消除歧義 */}
                                                     <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-bold opacity-80">
                                                         <span className="bg-white/60 px-2 py-1 rounded">流動資產: ${safeNum(liquidAssets)}</span>
                                                         <span className="bg-white/60 px-2 py-1 rounded">預期收入(未來60天): ${safeNum(futureFixedIncome)}</span>
@@ -1470,8 +1473,6 @@
                                             </div>
                                         );
                                     })()}
-                                    {/* --- 結束 --- */}
-                                    {/* --- 修改開始：區分啟用與停用帳戶 --- */}
                                     {(() => {
                                         const activeAccounts = accounts.filter(a => !a.isArchived);
                                         const archivedAccounts = accounts.filter(a => a.isArchived);
@@ -1498,7 +1499,6 @@
                                                                     </div>
                                                                 </div>
                                                                 {(() => {
-                                                                    // 💡 改動 1：大字固定顯示帳面成本 (stats.bals)，方便完美對帳
                                                                     const bal = stats.bals[acc.id] || 0;
                                                                     const isDebt = (acc.type === 'credit' || acc.type === 'payable');
                                                                     return (
@@ -1507,7 +1507,6 @@
                                                                         </p>
                                                                     );
                                                                 })()}
-                                                                {/* 外幣也一律用成本去換算台幣，直接吃設定裡的全域匯率 */}
                                                                 {acc.currency!=='TWD' && <p className="text-xs text-stone-400 font-bold tabular-nums ml-7">≈ TWD ${safeNum(Math.round((stats.bals[acc.id]||0) * (exchangeRates[acc.currency]||1)))}</p>}
                                                                 {acc.type === 'invest' && (
                                                                     <div className="mt-2 pt-2 border-t flex justify-between items-center text-xs ml-7 mr-6" onClick={e => e.stopPropagation()}>
@@ -1526,9 +1525,7 @@
                                                         );
                                                     })}
                                                 </div> 
-                                                {/* 下面接著是 archivedAccounts 的區塊 (維持你原本的) */}
                                                 
-                                                {/* 折疊的停用帳戶區塊 */}
                                                 {archivedAccounts.length > 0 && (
                                                     <div className="mt-6">
                                                         <button onClick={() => setShowArchived(!showArchived)} className="flex items-center gap-2 text-stone-500 font-bold text-sm w-full justify-between p-3 bg-stone-200/50 hover:bg-stone-200 rounded-xl transition-colors">
@@ -1544,7 +1541,7 @@
                                                                             <button onClick={()=>{setEditTarget(acc); openAccModalCorrect(acc);}} className="text-stone-400 hover:text-stone-600 p-1"><Icon name="edit-2" size={16}/></button>
                                                                         </div>
                                                                         <div className="flex gap-3 items-center mb-2">
-                                                                            <div className="w-4"></div> {/* 佔位符，因為停用的不給拖曳 */}
+                                                                            <div className="w-4"></div>
                                                                             <div className={`p-2 rounded-lg ${ACCOUNT_TYPES[acc.type]?.color || 'bg-stone-200 text-stone-500'} grayscale`}><Icon name={ACCOUNT_TYPES[acc.type]?.iconName || 'wallet'} size={18}/></div>
                                                                             <div>
                                                                                 <h3 className="font-bold text-stone-500 line-through decoration-stone-300 flex items-center gap-2">
@@ -1553,7 +1550,6 @@
                                                                             </div>
                                                                         </div>
                                                                         {(() => {
-                                                                            // 💡 停用區也改為固定顯示帳面成本
                                                                             const bal = stats.bals[acc.id] || 0;
                                                                             const isDebt = (acc.type === 'credit' || acc.type === 'payable');
                                                                             return (
@@ -1665,18 +1661,18 @@
                                                                                                     <span className="text-[10px] text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded tabular-nums group-hover:bg-white group-hover:shadow-sm transition-all">{t.date.slice(5)}</span>
                                                                                                     <span className="text-xs text-stone-600 truncate">{t.note || <span className="text-stone-300 italic">無備註</span>}</span>
                                                                                                 </div>
-                                                                                        {(() => {
-                                                                                            const acc = accounts.find(a => a.id === t.accountId);
-                                                                                            const isForeign = acc && acc.currency !== 'TWD';
-                                                                                            return (
-                                                                                                <div className="text-right">
-                                                                                                    <div className="tabular-nums font-bold text-xs text-stone-500 group-hover:text-stone-800">
-                                                                                                        ${safeNum(getBaseAmt(t, accounts, exchangeRates))}
-                                                                                                    </div>
-                                                                                                    {isForeign && <div className="text-[9px] text-stone-400 mt-0.5">({acc.currency} {t.amount})</div>}
-                                                                                                </div>
-                                                                                            );
-                                                                                        })()}                                                                                            </div>
+                                                                                                {(() => {
+                                                                                                    const acc = accounts.find(a => a.id === t.accountId);
+                                                                                                    const isForeign = acc && acc.currency !== 'TWD';
+                                                                                                    return (
+                                                                                                        <div className="text-right">
+                                                                                                            <div className="tabular-nums font-bold text-xs text-stone-500 group-hover:text-stone-800">
+                                                                                                                ${safeNum(getBaseAmt(t, accounts, exchangeRates))}
+                                                                                                            </div>
+                                                                                                            {isForeign && <div className="text-[9px] text-stone-400 mt-0.5">({acc.currency} {t.amount})</div>}
+                                                                                                        </div>
+                                                                                                    );
+                                                                                                })()}                                                                                            </div>
                                                                                         ))}
                                                                                     </>
                                                                                 ) : (
@@ -1739,7 +1735,7 @@
                                             <div key={tx.id} className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-teal-500 flex justify-between items-center">
                                                 <div><div className="flex items-center gap-2 mb-1"><span className="bg-teal-50 text-teal-700 px-2 py-0.5 rounded text-xs font-bold">對象: {tx.debtor}</span><span className="text-xs text-stone-400 tabular-nums">{tx.date}</span></div><p className="font-bold text-lg text-stone-800 tabular-nums">${safeNum(getRemainingDebt(tx.id))}</p><p className="text-xs text-stone-500">{tx.note || '無備註'}</p></div>
                                                 <button onClick={() => { setSettleTargetTx({ ...tx, amount: getRemainingDebt(tx.id) }); setSettleDate(getLocalToday()); setModal('settle'); }} className="bg-stone-600 text-white px-4 py-2 rounded-lg text-xs font-bold shadow hover:bg-stone-700">收款</button>                                            
-												</div>
+                                                </div>
                                         ))}
                                         {transactions.filter(t => t.type === 'advance' && getRemainingDebt(t.id) > 1).length===0 && <div className="text-center py-10 text-stone-400 text-sm">無待收項目</div>}
                                     </div>
@@ -1782,21 +1778,16 @@
                                         </div>
                                     ) : (
                                         <>
-                                        {/* --- 修改開始：優化類別選擇 UI (固定管理按鈕 + 無子類別提示 + 修復代墊崩潰) --- */}
                                         <div className="space-y-3">
                                             {(() => {
-                                                // 💡 關鍵修復：如果是「代墊」，就借用「支出」的類別清單；如果是「還款」或其他特殊類型，若沒清單就給空陣列
                                                 const displayType = txForm.type === 'advance' ? 'expense' : txForm.type;
                                                 const catList = categories[displayType] || [];
                                         
-                                                // 如果該類型完全沒有分類清單 (例如還款)，就直接不顯示這一區，避免報錯
                                                 if (catList.length === 0) return null;
                                         
                                                 return (
                                                     <>
-                                                        {/* 主類別區：左邊滑動清單 + 右邊固定管理按鈕 */}
                                                         <div className="flex gap-2 items-center">
-                                                            {/* 滑動清單 */}
                                                             <div className="flex-1 overflow-x-auto no-scrollbar flex gap-2 pb-1" style={{ scrollSnapType: 'x mandatory' }}>
                                                                 {catList.map(c => (
                                                                     <button 
@@ -1814,7 +1805,6 @@
                                                                     </button>
                                                                 ))}
                                                             </div>
-                                                            {/* 固定在右邊的管理按鈕 (不會被捲走) */}
                                                             <div className="pl-1 border-l border-stone-200">
                                                                 <button 
                                                                     onClick={()=>{setEditingCategoryType(displayType); setModal('cat');}} 
@@ -1826,11 +1816,9 @@
                                                             </div>
                                                         </div>
                                         
-                                                        {/* 子類別：大按鈕網格區 */}
                                                         {(() => {
                                                             const currentCat = catList.find(c => c.name === txForm.category);
                                                             
-                                                            // 情況 A: 有子類別 -> 顯示大按鈕
                                                             if (currentCat?.subs?.length > 0) {
                                                                 return (
                                                                     <div className="grid grid-cols-3 gap-2 animate-in fade-in slide-in-from-top-2 duration-300">
@@ -1847,7 +1835,6 @@
                                                                                 {s}
                                                                             </button>
                                                                         ))}
-                                                                        {/* 方便快速新增子類別的按鈕 */}
                                                                         <button 
                                                                             onClick={()=>{setEditingCategory(currentCat); setEditingCategoryType(displayType); setModal('editCat');}}
                                                                             className="p-3 rounded-xl text-sm font-bold border border-dashed border-stone-300 text-stone-400 hover:bg-stone-50 flex items-center justify-center gap-1"
@@ -1858,7 +1845,6 @@
                                                                 );
                                                             }
                                                             
-                                                            // 情況 B: 沒有子類別 -> 顯示提示與新增按鈕
                                                             if (currentCat) {
                                                                 return (
                                                                     <div className="bg-stone-50 rounded-xl p-3 border border-stone-100 border-dashed flex justify-between items-center animate-in fade-in">
@@ -1878,17 +1864,13 @@
                                                 );
                                             })()}
                                         </div>
-                                        {/* --- 修改結束 --- */}
-
- {!isOffset ? (
+                                         {!isOffset ? (
                                     <div className="w-full">
                                         <select className="w-full bg-stone-50 p-3 rounded-lg font-bold text-stone-700" value={txForm.accountId} onChange={e=>setTxForm({...txForm, accountId:e.target.value})}>
                                             <option value="">選擇帳戶</option>
-                                            {/* 👇 這裡加上了 .filter(a => !a.isArchived || a.id === txForm.accountId) */}
                                             {accounts.filter(a => !a.isArchived || a.id === txForm.accountId).map(a=><option key={a.id} value={a.id}>{a.name} {a.currency !== 'TWD' ? `(${a.currency})` : ''}</option>)}
                                         </select>
                                         
-                                        {/* 新增：外幣帳戶匯率提示與換算金額 (維持不變) */}
                                         {(() => {
                                             const acc = accounts.find(a => a.id === txForm.accountId);
                                             if (acc && acc.currency !== 'TWD') {
@@ -1936,7 +1918,6 @@
                                     {Object.entries(ACCOUNT_TYPES).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
                                 </select>
 
-                                {/* 🔥 新增：如果是信用卡，顯示結帳日設定 */}
                                 {accForm.type === 'credit' && (
                                     <div className="flex items-center gap-2 mb-4 bg-blue-50 p-3 rounded-lg border border-blue-100">
                                         <Icon name="calendar-days" size={18} className="text-blue-500"/>
@@ -2157,7 +2138,6 @@
                             <div className="bg-white w-full max-w-sm p-6 rounded-2xl max-h-[80vh] overflow-y-auto">
                                 <div className="flex justify-between items-center mb-4">
                                     <h3 className="font-bold text-xl text-stone-800">匯率設定</h3>
-                                    {/* 加上自動抓取按鈕 */}
                                     <button 
                                         onClick={async (e) => {
                                             const btn = e.currentTarget;
@@ -2165,12 +2145,10 @@
                                             btn.innerHTML = '<span class="animate-pulse">抓取中...</span>';
                                             btn.disabled = true;
                                             try {
-                                                // 呼叫你的 GAS 測試版 API
                                                 const res = await fetch('https://script.google.com/macros/s/AKfycbxLhIsN_32Zelwr34NZm7VRg8gumusDji2R5qpzZ-MvP-n55QSzItQdiM016d6z8SI/exec');
                                                 const data = await res.json();
                                                 if (data.error) throw new Error(data.error);
                                                 
-                                                // 更新前端 State，保留原本有的幣別
                                                 const newRates = { ...exchangeRates };
                                                 CURRENCIES.forEach(c => {
                                                     if (data[c]) newRates[c] = data[c];
@@ -2214,14 +2192,12 @@
                             </div>
                         </div>
                     )}
-                    {/* --- 修改開始：升級版市值更新視窗 (對齊藍色對帳單邏輯，吃全域匯率) --- */}
                     {modal === 'market' && editTarget && (
                         <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4">
                             <div className="bg-white w-full max-w-md p-6 rounded-2xl max-h-[90vh] overflow-y-auto flex flex-col">
                                 <h3 className="font-bold text-xl mb-1 text-stone-800">更新市值</h3>
                                 <p className="text-sm text-stone-500 mb-4">{editTarget.name} ({editTarget.currency})</p>
 
-                                {/* 總市值顯示 (自動計算) */}
                                 <div className="mb-6 bg-stone-50 p-4 rounded-xl text-center border border-stone-100">
                                     <p className="text-xs text-stone-400 font-bold uppercase mb-1">當前總市值 ({editTarget.currency})</p>
                                     <div className="text-3xl font-black text-stone-800 tabular-nums mb-1">
@@ -2232,7 +2208,6 @@
                                             return safeNum(sum);
                                         })()}
                                     </div>
-                                    {/* 換算台幣預覽 (直接吃全域匯率) */}
                                     {editTarget.currency !== 'TWD' && (
                                         <div className="text-sm font-bold text-rose-500 tabular-nums">
                                             ≈ TWD ${(() => {
@@ -2246,7 +2221,6 @@
                                     )}
                                 </div>
 
-                                {/* 持倉編輯區 */}
                                 <div className="flex-1 overflow-y-auto min-h-0 mb-4">
                                     {holdingForm.length > 0 && (
                                         <div className="flex gap-2 px-1 mb-2 text-xs font-bold text-stone-400">
@@ -2299,7 +2273,6 @@
                                         ))}
                                     </div>
                                     
-                                    {/* 按鈕列 */}
                                     <div className="mt-4 flex gap-2">
                                         <button 
                                             onClick={() => setHoldingForm([...holdingForm, { symbol: '', qty: '', price: '' }])}
@@ -2319,7 +2292,6 @@
                                     </div>
                                 </div>
 
-                                {/* 手輸模式 (當沒有持倉時顯示) */}
                                 {holdingForm.length === 0 && (
                                     <div className="mb-4 animate-in fade-in">
                                         <label className="text-xs text-stone-400 font-bold mb-1 block">或直接輸入總市價：</label>
@@ -2342,14 +2314,12 @@
                             </div>
                         </div>
                     )}
-                    {/* --- 修改結束 --- */}
                     {modal === 'settle' && settleTargetTx && (
                         <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4">
                             <div className="bg-white w-full max-w-sm p-6 rounded-2xl animate-in fade-in zoom-in-95 duration-200">
                                 <h3 className="font-bold text-xl mb-2 text-stone-800">收回代墊</h3>
                                 <p className="text-stone-500 mb-4 font-bold">對象: {settleTargetTx.debtor} / 金額: ${settleTargetTx.amount.toLocaleString()}</p>
                                 
-                                {/* 新增：收款日期選擇器 */}
                                 <div className="mb-3">
                                     <label className="text-xs font-bold text-stone-500 ml-1 mb-1 block">收款日期</label>
                                     <input 
@@ -2373,7 +2343,7 @@
                             </div>
                         </div>
                     )}                
-					</div>
+                    </div>
             );
         }
         const root = ReactDOM.createRoot(document.getElementById('root'));
