@@ -579,7 +579,15 @@
             const pct = target > 0 ? Math.min(100, (stats.totalAsset / target) * 100) : 0;
             return { target, pct, years };
         }, [retirement, stats.totalAsset]);
-
+		
+        const retirementInsight = useMemo(() => {
+            const savings = stats.inc - stats.exp;
+            const target = (retirement && retirement.monthlyExpense) ? parseFloat(retirement.monthlyExpense) : 0;
+            if (savings < 0) return { icon: 'alert-triangle', text: `⚠️ 本月透支，資產縮水中！`, color: 'text-rose-400', bg: 'bg-rose-500/20' };
+            if (savings < target) return { icon: 'target', text: `🎯 離月存額目標還有差距，加油！`, color: 'text-amber-400', bg: 'bg-amber-500/20' };
+            return { icon: 'party-popper', text: `🚀 太棒了！儲蓄力超標！`, color: 'text-emerald-400', bg: 'bg-emerald-500/20' };
+        }, [stats, retirement, currentLedgerMonth]);
+		
         const homeInsight = useMemo(() => {
             const saving = stats.inc - stats.exp;
             if (saving < 0) return { type:'danger', icon:'alert-triangle', text:`透支 $${Math.abs(saving).toLocaleString()}` };
