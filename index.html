@@ -531,14 +531,31 @@
                     return;
                 }
 
-                const txTime = tx.createdAt || new Date(tx.date + 'T12:00:00Z').toISOString();
-                const targetTime = targetTx.createdAt || new Date(targetTx.date + 'T12:00:01Z').toISOString();
+                let txTime = tx.createdAt || new Date(tx.date + 'T12:00:00.000Z').toISOString();
+                let targetTime = targetTx.createdAt || new Date(targetTx.date + 'T12:00:00.000Z').toISOString();
+
+                // 🔥 關鍵修復：如果兩筆時間一模一樣（例如匯入的資料），強制拉開 1 秒的差距
+                if (txTime === targetTime) {
+                    const baseTime = new Date(txTime).getTime();
+                    if (direction === -1) { 
+                        // 往上移 (變新)
+                        txTime = new Date(baseTime + 1000).toISOString();
+                    } else { 
+                        // 往下移 (變舊)
+                        txTime = new Date(baseTime - 1000).toISOString();
+                    }
+                } else {
+                    // 正常情況，直接將兩者的時間對調
+                    const temp = txTime;
+                    txTime = targetTime;
+                    targetTime = temp;
+                }
 
                 const batch = fbRef.current.writeBatch(dbRef.current);
                 const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
 
-                batch.update(fbRef.current.doc(userRef, 'transactions', tx.id), { createdAt: targetTime });
-                batch.update(fbRef.current.doc(userRef, 'transactions', targetTx.id), { createdAt: txTime });
+                batch.update(fbRef.current.doc(userRef, 'transactions', tx.id), { createdAt: txTime });
+                batch.update(fbRef.current.doc(userRef, 'transactions', targetTx.id), { createdAt: targetTime });
 
                 await batch.commit();
             } catch(e) {
