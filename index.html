@@ -468,26 +468,23 @@
         };
         
         const handleUndoRepayment = async (tx) => {
-            if (!confirm(`確定要刪除/還原這筆紀錄嗎？\n\n(若原始代墊單還在，會自動將其恢復為「未結清」狀態)`)) return;
+            if (!confirm(`確定要作廢/刪除這筆還款紀錄嗎？\n\n(此筆還款將被移除，若原代墊單還在，會自動恢復為未結清)`)) return;
             
             try {
-                const batch = fbRef.current.writeBatch(dbRef.current);
                 const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
                 
-                // 1. 刪除這筆錯誤的還款紀錄
-                batch.delete(fbRef.current.doc(userRef, 'transactions', tx.id));
+                // 💡 關鍵修復：改成逐一執行，避免 batch 找不到文件導致整包失敗卡死
+                await fbRef.current.deleteDoc(fbRef.current.doc(userRef, 'transactions', tx.id));
                 
-                // 2. 檢查對應的代墊單是否還活著，有的話才去更新它 (防止找不到檔案而報錯卡死)
                 if (tx.relatedTxId) {
                     const relatedRef = fbRef.current.doc(userRef, 'transactions', tx.relatedTxId);
-                    const docSnap = await fbRef.current.getDoc(relatedRef);
-                    if (docSnap.exists()) {
-                        batch.update(relatedRef, { isSettled: false });
+                    const snap = await fbRef.current.getDoc(relatedRef);
+                    if (snap.exists()) {
+                        await fbRef.current.updateDoc(relatedRef, { isSettled: false });
                     }
                 }
                 
-                await batch.commit();
-                alert("✅ 已成功刪除/還原！");
+                alert("✅ 已成功作廢刪除！");
             } catch (e) {
                 console.error(e);
                 alert("操作失敗，請檢查網路連線");
@@ -1770,14 +1767,23 @@
                                     <div className="space-y-3">
                                         {transactions.filter(t => t.type === 'advance' && getRemainingDebt(t.id) > 1).map(tx => (
                                             <div key={tx.id} className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-teal-500 flex justify-between items-center">
-                                                <div><div className="flex items-center gap-2 mb-1"><span className="bg-teal-50 text-teal-700 px-2 py-0.5 rounded text-xs font-bold">對象: {tx.debtor}</span><span className="text-xs text-stone-400 tabular-nums">{tx.date}</span></div><p className="font-bold text-lg text-stone-800 tabular-nums">${safeNum(getRemainingDebt(tx.id))}</p><p className="text-xs text-stone-500">{tx.note || '無備註'}</p></div>
-                                                <button onClick={() => { setSettleTargetTx({ ...tx, amount: getRemainingDebt(tx.id) }); setSettleDate(getLocalToday()); setModal('settle'); }} className="bg-stone-600 text-white px-4 py-2 rounded-lg text-xs font-bold shadow hover:bg-stone-700">收款</button>                                            
+                                                <div>
+                                                    <div className="flex items-center gap-2 mb-1"><span className="bg-teal-50 text-teal-700 px-2 py-0.5 rounded text-xs font-bold">對象: {tx.debtor}</span><span className="text-xs text-stone-400 tabular-nums">{tx.date}</span></div>
+                                                    <p className="font-bold text-lg text-stone-800 tabular-nums">${safeNum(getRemainingDebt(tx.id))}</p>
+                                                    <p className="text-xs text-stone-500">{tx.note || '無備註'}</p>
                                                 </div>
+                                                {/* 🔥 新增：右側操作區加入「作廢」按鈕 */}
+                                                <div className="flex flex-col gap-2">
+                                                    <button onClick={() => { setSettleTargetTx({ ...tx, amount: getRemainingDebt(tx.id) }); setSettleDate(getLocalToday()); setModal('settle'); }} className="bg-stone-800 text-white px-4 py-2 rounded-lg text-xs font-bold shadow hover:bg-stone-900 transition-colors">收款</button>
+                                                    <button onClick={() => { if(confirm('確定要直接作廢並刪除這筆待收嗎？\n\n(若這是錯誤的幽靈帳款，請按確定徹底移除)')) deleteData('transactions', tx.id); }} className="bg-stone-50 text-stone-400 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-50 hover:text-red-500 transition-colors border border-stone-200">作廢</button>
+                                                </div>
+                                            </div>
                                         ))}
                                         {transactions.filter(t => t.type === 'advance' && getRemainingDebt(t.id) > 1).length===0 && <div className="text-center py-10 text-stone-400 text-sm">無待收項目</div>}
                                     </div>
                                 </div>
                             )}
+							
                         </main>
                         
                         <nav className="fixed bottom-0 w-full bg-white border-t border-stone-200 px-6 py-3 flex justify-between z-[100] pb-safe max-w-xl mx-auto left-0 right-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
