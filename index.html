@@ -1271,17 +1271,20 @@
                                                     <div className="bg-white rounded-xl shadow-sm border border-stone-100 overflow-hidden">
                                                         {group.txs.map((tx, idx) => {
                                                             return (
-                                                                <div key={tx.id} onClick={(e) => { if(isReconcileMode) { toggleReconcile(tx.id, tx.isReconciled, e); } else { openTxModal(tx.type, tx); } }} className={`p-3 flex justify-between items-center cursor-pointer hover:bg-stone-50 group ${idx !== group.txs.length - 1 ? 'border-b border-stone-100' : ''}`}>
+                                                                <div key={tx.id} onClick={() => openTxModal(tx.type, tx)} className={`p-3 flex justify-between items-center cursor-pointer hover:bg-stone-50 group ${idx !== group.txs.length - 1 ? 'border-b border-stone-100' : ''}`}>
                                                                     <div className="flex items-center gap-3 overflow-hidden">
                                                                         
-                                                                        {/* 🔥 新增：對帳模式專用的勾選框 */}
+                                                                        {/* 🔥 功能 1：對帳模式專用的勾選框 (有獨立的點擊事件 toggleReconcile) */}
                                                                         {isReconcileMode && (
-                                                                            <div className={`shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${tx.isReconciled ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-stone-300 text-transparent'}`}>
+                                                                            <div 
+                                                                                onClick={(e) => toggleReconcile(tx.id, tx.isReconciled, e)}
+                                                                                className={`shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors cursor-pointer hover:scale-110 active:scale-95 ${tx.isReconciled ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-stone-300 text-transparent hover:border-emerald-400'}`}
+                                                                            >
                                                                                 <Icon name="check" size={14}/>
                                                                             </div>
                                                                         )}
-                                                                
-                                                                        {/* 💡 修改：加入 relative 定位，讓非對帳模式時可以顯示已對帳小綠勾 */}
+                                                                 
+                                                                        {/* 🔥 功能 2：交易類別的圖示 (含已對帳的小綠勾) */}
                                                                         <div className={`p-2 rounded-lg shrink-0 relative ${tx.displayType==='income' || tx.type==='repayment' ?'bg-emerald-100 text-emerald-600': tx.displayType==='expense'?'bg-rose-100 text-rose-600':'bg-stone-100 text-stone-600'}`}>
                                                                             <Icon name={getCategoryIcon(tx.category, tx.type)} size={18}/>
                                                                             {!isReconcileMode && tx.isReconciled && (
