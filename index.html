@@ -467,27 +467,18 @@
             setSettleTargetTx(null);
         };
         
-        const handleUndoRepayment = async (tx) => {
-            if (!confirm(`確定要作廢/刪除這筆還款紀錄嗎？\n\n(此筆還款將被移除，若原代墊單還在，會自動恢復為未結清)`)) return;
+        // 🔥 新增：專門用來強制超渡幽靈待收的強力作廢函數
+        const handleVoidAdvance = async (tx) => {
+            if (!confirm(`確定要作廢這筆對「${tx.debtor}」的待收（$${tx.amount}）嗎？\n\n按下確定後，將徹底從資料庫中刪除這筆幽靈帳款！`)) return;
             
             try {
+                // 顯示執行中，避免重複點擊
                 const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
-                
-                // 💡 關鍵修復：改成逐一執行，避免 batch 找不到文件導致整包失敗卡死
                 await fbRef.current.deleteDoc(fbRef.current.doc(userRef, 'transactions', tx.id));
-                
-                if (tx.relatedTxId) {
-                    const relatedRef = fbRef.current.doc(userRef, 'transactions', tx.relatedTxId);
-                    const snap = await fbRef.current.getDoc(relatedRef);
-                    if (snap.exists()) {
-                        await fbRef.current.updateDoc(relatedRef, { isSettled: false });
-                    }
-                }
-                
-                alert("✅ 已成功作廢刪除！");
+                alert('✅ 幽靈帳款已成功作廢並移除！');
             } catch (e) {
                 console.error(e);
-                alert("操作失敗，請檢查網路連線");
+                alert('❌ 作廢失敗，請檢查網路連線或看 Console 錯誤訊息：' + e.message);
             }
         };
         
@@ -1775,7 +1766,15 @@
                                                 {/* 🔥 新增：右側操作區加入「作廢」按鈕 */}
                                                 <div className="flex flex-col gap-2">
                                                     <button onClick={() => { setSettleTargetTx({ ...tx, amount: getRemainingDebt(tx.id) }); setSettleDate(getLocalToday()); setModal('settle'); }} className="bg-stone-800 text-white px-4 py-2 rounded-lg text-xs font-bold shadow hover:bg-stone-900 transition-colors">收款</button>
-                                                    <button onClick={() => { if(confirm('確定要直接作廢並刪除這筆待收嗎？\n\n(若這是錯誤的幽靈帳款，請按確定徹底移除)')) deleteData('transactions', tx.id); }} className="bg-stone-50 text-stone-400 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-50 hover:text-red-500 transition-colors border border-stone-200">作廢</button>
+                                                    <button 
+                                                        onClick={(e) => { 
+                                                            e.stopPropagation(); // 阻止事件干擾
+                                                            handleVoidAdvance(tx); // 呼叫專屬強力刪除函數
+                                                        }} 
+                                                        className="bg-stone-50 text-stone-400 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-50 hover:text-red-500 transition-colors border border-stone-200"
+                                                    >
+                                                        作廢
+                                                    </button>
                                                 </div>
                                             </div>
                                         ))}
