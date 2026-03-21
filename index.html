@@ -792,7 +792,8 @@
                 finalCategory = '轉帳';
             }
             
-            const createdAt = editingTx ? editingTx.createdAt : new Date().toISOString();
+            // 🔥 關鍵修復 1：確保舊資料缺少 createdAt 時，自動補上現在時間，避免 undefined 報錯
+            const createdAt = (editingTx && editingTx.createdAt) ? editingTx.createdAt : new Date().toISOString();
             
             const selectedAcc = accounts.find(a => a.id === txForm.accountId);
             const currentRate = (selectedAcc && selectedAcc.currency !== 'TWD') ? (exchangeRates[selectedAcc.currency] || 1) : 1;
@@ -805,6 +806,12 @@
                 createdAt,
                 exchangeRate: currentRate
             };
+
+            // 🔥 關鍵修復 2：過濾掉畫面顯示用的暫存變數與 undefined，確保送上雲端的資料絕對乾淨
+            Object.keys(base).forEach(key => { if (base[key] === undefined) delete base[key]; });
+            delete base.balanceSnapshot;
+            delete base.change;
+            delete base.displayType;
             
             try {
                 if (editingTx) {
