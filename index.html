@@ -468,23 +468,29 @@
         };
         
         const handleUndoRepayment = async (tx) => {
-            if (!confirm(`確定要還原這筆對「${tx.note.replace('收回代墊: ', '')}」的還款嗎？\n\n1. 此還款紀錄將被刪除。\n2. 對應的代墊欠款將恢復為「未結清」狀態。`)) return;
+            if (!confirm(`確定要刪除/還原這筆紀錄嗎？\n\n(若原始代墊單還在，會自動將其恢復為「未結清」狀態)`)) return;
             
             try {
                 const batch = fbRef.current.writeBatch(dbRef.current);
                 const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
                 
+                // 1. 刪除這筆錯誤的還款紀錄
                 batch.delete(fbRef.current.doc(userRef, 'transactions', tx.id));
                 
+                // 2. 檢查對應的代墊單是否還活著，有的話才去更新它 (防止找不到檔案而報錯卡死)
                 if (tx.relatedTxId) {
-                    batch.update(fbRef.current.doc(userRef, 'transactions', tx.relatedTxId), { isSettled: false });
+                    const relatedRef = fbRef.current.doc(userRef, 'transactions', tx.relatedTxId);
+                    const docSnap = await fbRef.current.getDoc(relatedRef);
+                    if (docSnap.exists()) {
+                        batch.update(relatedRef, { isSettled: false });
+                    }
                 }
                 
                 await batch.commit();
-                alert("已成功還原！該筆款項已回到「待收」清單中。");
+                alert("✅ 已成功刪除/還原！");
             } catch (e) {
                 console.error(e);
-                alert("還原失敗，請檢查網路連線");
+                alert("操作失敗，請檢查網路連線");
             }
         };
         
@@ -952,7 +958,13 @@
         const handleRetireSubmit = (e) => { e.preventDefault(); saveData('settings', retireForm, 'retirement'); setModal(null); };
 
         const openTxModal = (type = 'expense', existingTx = null) => {
-                if (existingTx) { 
+            // 🔥 新增防呆鎖：禁止直接編輯代墊與還款紀錄
+            if (existingTx && (existingTx.type === 'repayment' || existingTx.type === 'advance')) {
+                alert('⚠️ 系統保護提示\n\n代墊與還款紀錄具有連動計算邏輯，不可直接編輯。\n若金額有誤，請點擊右下角「垃圾桶」刪除，或使用「還原」功能後再重新記一筆，以確保帳目準確！');
+                return;
+            }
+
+            if (existingTx) { 
                 setEditingTx(existingTx); 
                 setTxForm({ ...existingTx, accountId: existingTx.accountId || (accounts.length > 0 ? accounts[0].id : ''), }); 
                 setIsAdvanceSplit(false); setIsOffset(false); 
@@ -1813,7 +1825,14 @@
                                                 return (
                                                     <>
                                                         <div className="flex gap-2 items-center">
-                                                            <div className="flex-1 overflow-x-auto no-scrollbar flex gap-2 pb-1" style={{ scrollSnapType: 'x mandatory' }}>
+                                                            <div 
+                                                             className="flex-1 flex flex-wrap gap-2 pb-1" 
+                                                             style={{ scrollSnapType: 'x mandatory' }}
+                                                             onWheel={(e) => {
+                                                                 // 將滑鼠的上下滾動 (deltaY) 轉換為區塊的左右滑動 (scrollLeft)
+                                                                 e.currentTarget.scrollLeft += e.deltaY;
+                                                             }}
+                                                            >
                                                                 {catList.map(c => (
                                                                     <button 
                                                                         key={c.name} 
