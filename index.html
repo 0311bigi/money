@@ -846,20 +846,27 @@
                     if (txForm.type === 'expense' && isAdvanceSplit) {
                         let advTotal = 0;
                         const promises = [];
+                        
+                        // 🔥 關鍵修復：把複製體內的舊 ID 徹底抹除，讓 Firebase 自動生成全新的 ID
+                        const cleanBase = { ...base };
+                        delete cleanBase.id;
+
                         splitData.advances.forEach(a => {
                             if (a.debtor && a.amount) {
-                                // 1. 生成新的獨立代墊單
-                                promises.push(saveData('transactions', { ...base, type:'advance', amount: parseFloat(a.amount), debtor: a.debtor, isSettled: false, note: `代墊: ${txForm.note}`, createdAt: new Date().toISOString() }));
+                                // 1. 生成新的獨立代墊單 (使用乾淨的 cleanBase)
+                                promises.push(saveData('transactions', { ...cleanBase, type:'advance', amount: parseFloat(a.amount), debtor: a.debtor, isSettled: false, note: `代墊: ${txForm.note}`, createdAt: new Date().toISOString() }));
                                 advTotal += parseFloat(a.amount);
                             }
                         });
                         // 2. 把原來的支出扣掉代墊金額，更新原本那筆紀錄
                         const myExp = amt - advTotal;
-                        promises.push(saveData('transactions', { ...base, amount: myExp }, editingTx.id));
+                        promises.push(saveData('transactions', { ...cleanBase, amount: myExp }, editingTx.id));
                         await Promise.all(promises);
                     } else {
                         // 正常修改一般的紀錄
-                        await saveData('transactions', base, editingTx.id);
+                        const cleanBase = { ...base };
+                        delete cleanBase.id;
+                        await saveData('transactions', cleanBase, editingTx.id);
                     }
                     setModal(null);
                     setEditingTx(null);
