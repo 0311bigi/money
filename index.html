@@ -148,7 +148,8 @@
     const safeNum = (val) => {
         if (val === null || val === undefined) return "0";
         const num = parseFloat(val);
-        return isNaN(num) ? "0" : num.toLocaleString();
+        // 🔥 修正：強制四捨五入，拔除小數點，讓畫面變乾淨
+        return isNaN(num) ? "0" : Math.round(num).toLocaleString();
     };
 
     function App() {
@@ -159,7 +160,8 @@
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState(null);
         const [activeTab, setActiveTab] = useState('home');
-
+        const [homeFilter, setHomeFilter] = useState('all');
+		
         const [transactions, setTransactions] = useState([]);
         const [accounts, setAccounts] = useState([]);
         const [categories, setCategories] = useState(DEFAULT_CATS);
@@ -716,13 +718,34 @@
 
         const groupedTransactions = useMemo(() => {
             const targetTxs = transactions.filter(t => (t.bookId||'main')===currentBook.id && String(t.date || '').startsWith(currentLedgerMonth));
+            
+            // 🔥 新增：明細過濾邏輯
+            const filteredTxs = targetTxs.filter(tx => {
+                if (homeFilter === 'all') return true;
+                
+                // 1. 收支：包含一般支出、收入，以及代墊與收回代墊
+                if (homeFilter === 'inout') return ['expense', 'income', 'advance', 'repayment'].includes(tx.type);
+                
+                // 2 & 3. 投資與轉帳：
+                if (tx.type === 'transfer') {
+                    const fromAcc = accounts.find(a => a.id === tx.accountId);
+                    const toAcc = accounts.find(a => a.id === tx.toAccountId);
+                    // 只要轉出或轉入「任一端」是投資理財帳戶，就視為投資
+                    const isInvest = (fromAcc && fromAcc.type === 'invest') || (toAcc && toAcc.type === 'invest');
+                    
+                    if (homeFilter === 'invest') return isInvest;
+                    if (homeFilter === 'transfer') return !isInvest; // 純轉帳 (不含投資)
+                }
+                return false;
+            });
+
             const groups = {};
-            targetTxs.forEach(tx => {
+            filteredTxs.forEach(tx => {
                 if (!groups[tx.date]) groups[tx.date] = [];
                 groups[tx.date].push(tx);
             });
             return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]));
-        }, [transactions, currentBook, currentLedgerMonth]);
+        }, [transactions, currentBook, currentLedgerMonth, homeFilter, accounts]);
         
         const trendData = useMemo(() => {
             const today = new Date();
@@ -1438,15 +1461,42 @@
                                         </div>
                                         <div className="mt-4 bg-white p-2 rounded-lg text-xs flex items-center gap-2 font-bold text-stone-700 shadow-sm"><Icon name={homeInsight.icon} size={14} className="text-rose-500"/> {homeInsight.text}</div>
                                     </div>
+									{/* 🔥 新增：明細切換按鈕 */}
+                                    <div className="flex bg-stone-200/60 p-1 rounded-xl mb-4">
+                                        <button onClick={() => setHomeFilter('all')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${homeFilter === 'all' ? 'bg-white text-stone-800 shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}>全部</button>
+                                        <button onClick={() => setHomeFilter('inout')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${homeFilter === 'inout' ? 'bg-white text-stone-800 shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}>收支</button>
+                                        <button onClick={() => setHomeFilter('invest')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${homeFilter === 'invest' ? 'bg-white text-stone-800 shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}>投資</button>
+                                        <button onClick={() => setHomeFilter('transfer')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${homeFilter === 'transfer' ? 'bg-white text-stone-800 shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}>轉帳</button>
+                                    </div>
+									
                                     <div className="space-y-4">
                                         {groupedTransactions.length === 0 ? <div className="text-center py-16 text-stone-400 text-sm border-2 border-dashed border-stone-200 rounded-xl bg-white">本月尚無紀錄</div> : 
-                                            groupedTransactions.map(([date, txs]) => (
-                                                <div key={date} className="animate-in slide-in-from-bottom">
-                                                    <div className="flex items-center gap-2 mb-2 px-1">
-                                                        <span className="text-xs font-bold text-stone-400 bg-stone-100 px-2 py-1 rounded-md tabular-nums">{date}</span>
-                                                        <span className="text-xs font-bold text-stone-400">{getDayOfWeek(date)}</span>
+                                            groupedTransactions.map(([date, txs]) => {
+                                                // 計算每日收支總計
+                                                let dailyExp = 0;
+                                                let dailyInc = 0;
+                                                txs.forEach(t => {
+                                                    const amt = getBaseAmt(t, accounts, exchangeRates);
+                                                    if (t.type === 'expense') dailyExp += amt;
+                                                    if (t.type === 'income') dailyInc += amt;
+                                                });
+
+                                                return (
+                                                <div key={date} className="animate-in slide-in-from-bottom mb-6">
+                                                    {/* 每日標題與總計 */}
+                                                    <div className="flex justify-between items-end mb-2 px-2">
+                                                        <div className="flex items-baseline gap-2">
+                                                            <span className="text-xl font-black text-stone-800 tabular-nums">{date.replace(/-/g, '/')}</span>
+                                                            <span className="text-sm font-bold text-stone-400">{getDayOfWeek(date)}</span>
+                                                        </div>
+                                                        <div className="text-xs font-bold flex gap-3">
+                                                            {dailyInc > 0 && <span className="text-emerald-500">收入: {safeNum(dailyInc)}</span>}
+                                                            {dailyExp > 0 && <span className="text-stone-500">支出: {safeNum(dailyExp)}</span>}
+                                                        </div>
                                                     </div>
-                                                    <div className="bg-white rounded-xl shadow-sm border border-stone-100 overflow-hidden">
+                                                    
+                                                    {/* 明細清單 (無邊框卡片，純白底) */}
+                                                    <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
                                                         {txs.map((tx, idx) => {
                                                             const acc = accounts.find(a => a.id === tx.accountId);
                                                             let accName = acc ? acc.name : (tx.accountId === OFFSET_ACCOUNT_ID ? '抵扣' : '未知');
@@ -1455,46 +1505,69 @@
                                                                 accName += ` ➝ ${toAcc ? toAcc.name : '未知'}`;
                                                             }
                                                             
-                                                            let rowStyle = "bg-white border-l-4 border-white"; 
-                                                            if (tx.type === 'expense') rowStyle = "bg-white border-l-4 border-rose-500";
-                                                            if (tx.type === 'income' || tx.type === 'repayment') rowStyle = "bg-emerald-50 border-l-4 border-emerald-500";
-                                                            if (tx.type === 'transfer') rowStyle = "bg-slate-50 border-l-4 border-slate-400";
-                                                            if (tx.type === 'advance') rowStyle = "bg-indigo-50 border-l-4 border-indigo-500";
+                                                            // 判斷金額顏色與正負號
+                                                            let amountColor = "text-stone-800";
+                                                            let sign = "";
+                                                            let iconBg = "bg-stone-100 text-stone-500";
                                                             
+                                                            if (tx.type === 'income' || tx.type === 'repayment') { 
+                                                                amountColor = "text-emerald-500"; sign = "+"; iconBg = "bg-emerald-50 text-emerald-500";
+                                                            } else if (tx.type === 'expense') { 
+                                                                amountColor = "text-stone-800"; sign = ""; iconBg = "bg-stone-100 text-stone-600";
+                                                            } else if (tx.type === 'advance') {
+                                                                amountColor = "text-indigo-500"; sign = ""; iconBg = "bg-indigo-50 text-indigo-500";
+                                                            } else if (tx.type === 'transfer') {
+                                                                amountColor = "text-stone-400"; sign = ""; iconBg = "bg-slate-50 text-slate-400";
+                                                            }
+
                                                             return (
-                                                                <div key={tx.id} onClick={() => openTxModal(tx.type, tx)} className={`p-4 flex justify-between items-center cursor-pointer hover:bg-stone-50 transition-colors ${idx !== txs.length - 1 ? 'border-b border-stone-100' : ''} ${rowStyle}`}>
-                                                                    <div className="flex items-center gap-3">
-                                                                        <div className={`p-2.5 rounded-xl ${tx.type==='income' || tx.type==='repayment' ?'bg-emerald-100 text-emerald-600': tx.type==='advance'?'bg-indigo-100 text-indigo-600' : 'bg-stone-100 text-stone-600'}`}><Icon name={getCategoryIcon(tx.category, tx.type)} size={18}/></div>
-                                                                        <div><p className="font-bold text-sm text-stone-800">{tx.type === 'advance' ? `代墊: ${tx.debtor}` : (tx.category || '未分類')} {tx.subCategory && <span className="text-xs text-stone-400 ml-1">({tx.subCategory})</span>}</p><p className="text-xs text-stone-400 mt-0.5">{tx.note}</p></div>
+                                                                <div key={tx.id} onClick={() => openTxModal(tx.type, tx)} className={`p-4 flex justify-between items-center cursor-pointer hover:bg-stone-50 transition-colors ${idx !== txs.length - 1 ? 'border-b border-stone-100' : ''}`}>
+                                                                    <div className="flex items-center gap-4 overflow-hidden">
+                                                                        {/* 圖示放大，底色變淡 */}
+                                                                        <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${iconBg}`}>
+                                                                            <Icon name={getCategoryIcon(tx.category, tx.type)} size={22}/>
+                                                                        </div>
+                                                                        <div className="min-w-0">
+                                                                            <div className="flex items-center gap-2 mb-0.5">
+                                                                                {/* 分類大字體 */}
+                                                                                <p className="font-bold text-lg text-stone-800 truncate">
+                                                                                    {tx.type === 'advance' ? `代墊: ${tx.debtor}` : (tx.category || '未分類')}
+                                                                                </p>
+                                                                                {/* 清楚的小標籤區分特殊類型 */}
+                                                                                {tx.type === 'advance' && <span className="text-[10px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded font-bold shrink-0">代墊</span>}
+                                                                                {tx.type === 'repayment' && <span className="text-[10px] bg-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded font-bold shrink-0">收回代墊</span>}
+                                                                                {tx.type === 'transfer' && <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-bold shrink-0">轉帳</span>}
+                                                                            </div>
+                                                                            {/* 備註與帳戶整合在底下，字體縮小變灰 */}
+                                                                            <p className="text-sm text-stone-500 truncate flex items-center gap-1.5">
+                                                                                <span className="font-medium text-stone-400">{accName}</span>
+                                                                                {tx.note && <span className="text-stone-300">|</span>}
+                                                                                <span>{tx.note}</span>
+                                                                            </p>
+                                                                        </div>
                                                                     </div>
-                                                                    <div className="text-right">
+                                                                    <div className="text-right shrink-0 ml-3">
                                                                         {(() => {
                                                                             const isForeign = acc && acc.currency !== 'TWD';
                                                                             const baseAmt = getBaseAmt(tx, accounts, exchangeRates);
                                                                             return (
-                                                                                <div className="text-right">
-                                                                                    <p className={`font-bold tabular-nums ${tx.type==='income' || tx.type==='repayment' ?'text-emerald-600':'text-stone-800'}`}>
-                                                                                        {tx.type==='income' || tx.type==='repayment' ?'+':'-'}{safeNum(isForeign ? baseAmt : tx.amount)}
+                                                                                <div>
+                                                                                    {/* 金額大字體，使用專屬顏色 */}
+                                                                                    <p className={`text-xl font-black tabular-nums ${amountColor}`}>
+                                                                                        {sign}{safeNum(isForeign ? baseAmt : tx.amount)}
                                                                                     </p>
-                                                                                    {isForeign && <p className="text-[10px] text-stone-400 mt-0.5 font-bold">({acc.currency} {tx.amount})</p>}
+                                                                                    {isForeign && <p className="text-[11px] text-stone-400 mt-0.5 font-bold">({acc.currency} {safeNum(tx.amount)})</p>}
                                                                                 </div>
                                                                             );
                                                                         })()}
-                                                                        <div className="flex items-center justify-end gap-1 mt-0.5">
-                                                                            <span className="text-xs text-stone-400 bg-black/5 px-1.5 py-0.5 rounded">{accName}</span>
-                                                                            {tx.type === 'repayment' ? (
-                                                                                <button onClick={(e)=>{e.stopPropagation(); handleUndoRepayment(tx);}} className="text-stone-300 hover:text-blue-500 p-1" title="還原此筆還款"><Icon name="rotate-ccw" size={14}/></button>
-                                                                            ) : (
-                                                                                <button onClick={(e)=>{e.stopPropagation();if(confirm('確定要刪除這筆交易嗎？')) deleteData('transactions', tx.id)}} className="text-stone-300 hover:text-rose-500 p-1"><Icon name="trash-2" size={14}/></button>
-                                                                            )}
-                                                                        </div>
                                                                     </div>
                                                                 </div>
                                                             );
                                                         })}
                                                     </div>
                                                 </div>
-                                            ))
+                                                );
+                                            })
                                         }
                                     </div>
                                 </div>
