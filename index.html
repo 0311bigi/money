@@ -383,8 +383,9 @@
             fbRef.current.onSnapshot(fbRef.current.collection(userRef, 'transactions'), s => {
                 const docs = s.docs.map(d => ({id: d.id, ...d.data()}));
                 docs.sort((a, b) => {
-                    if (a.date !== b.date) return a.date < b.date ? 1 : -1;
-                    return (a.createdAt || '') < (b.createdAt || '') ? 1 : -1;
+                    // 🔥 修正：使用 localeCompare 進行穩定的字串時間比對 (由新到舊)
+                    if (a.date !== b.date) return b.date.localeCompare(a.date);
+                    return (b.createdAt || '').localeCompare(a.createdAt || '');
                 });
                 setTransactions(docs);
             }),
@@ -788,8 +789,9 @@
             }
 
             const displayList = [...monthTxs].sort((a, b) => {
-                if (a.date !== b.date) return a.date < b.date ? 1 : -1;
-                return (a.createdAt || '') < (b.createdAt || '') ? 1 : -1;
+                // 🔥 修正：使用 localeCompare 進行穩定的字串時間比對 (由新到舊)
+                if (a.date !== b.date) return b.date.localeCompare(a.date);
+                return (b.createdAt || '').localeCompare(a.createdAt || '');
             });
 
             let mIncome = 0, mExpense = 0, mTrans = 0;
