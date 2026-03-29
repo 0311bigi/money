@@ -719,23 +719,40 @@
         const groupedTransactions = useMemo(() => {
             const targetTxs = transactions.filter(t => (t.bookId||'main')===currentBook.id && String(t.date || '').startsWith(currentLedgerMonth));
             
-            // 🔥 新增：明細過濾邏輯
+            // 🔥 升級版：明細過濾邏輯
             const filteredTxs = targetTxs.filter(tx => {
                 if (homeFilter === 'all') return true;
                 
-                // 1. 收支：包含一般支出、收入，以及代墊與收回代墊
-                if (homeFilter === 'inout') return ['expense', 'income', 'advance', 'repayment'].includes(tx.type);
-                
-                // 2 & 3. 投資與轉帳：
-                if (tx.type === 'transfer') {
-                    const fromAcc = accounts.find(a => a.id === tx.accountId);
-                    const toAcc = accounts.find(a => a.id === tx.toAccountId);
-                    // 只要轉出或轉入「任一端」是投資理財帳戶，就視為投資
-                    const isInvest = (fromAcc && fromAcc.type === 'invest') || (toAcc && toAcc.type === 'invest');
-                    
-                    if (homeFilter === 'invest') return isInvest;
-                    if (homeFilter === 'transfer') return !isInvest; // 純轉帳 (不含投資)
+                // 1. 收支：純粹的日常花費、收入、代墊與還款
+                if (homeFilter === 'inout') {
+                    return ['expense', 'income', 'advance', 'repayment'].includes(tx.type);
                 }
+                
+                // 2. 投資：精準抓取投資相關帳目
+                if (homeFilter === 'invest') {
+                    // 條件 A：如果是轉帳，只要有一端是「投資帳戶」就算
+                    if (tx.type === 'transfer') {
+                        const fromAcc = accounts.find(a => a.id === tx.accountId);
+                        const toAcc = accounts.find(a => a.id === tx.toAccountId);
+                        return (fromAcc && fromAcc.type === 'invest') || (toAcc && toAcc.type === 'invest');
+                    }
+                    // 條件 B：如果是日常收支，只要類別是「投資」（例如股利），或是從「投資帳戶」直接扣款/入帳的也算
+                    const acc = accounts.find(a => a.id === tx.accountId);
+                    return tx.category === '投資' || (acc && acc.type === 'invest');
+                }
+                
+                // 3. 轉帳：純粹的資金流動 (排除投資)
+                if (homeFilter === 'transfer') {
+                    if (tx.type === 'transfer') {
+                        const fromAcc = accounts.find(a => a.id === tx.accountId);
+                        const toAcc = accounts.find(a => a.id === tx.toAccountId);
+                        const isInvest = (fromAcc && fromAcc.type === 'invest') || (toAcc && toAcc.type === 'invest');
+                        // 必須是轉帳，而且兩端都「不能」是投資帳戶
+                        return !isInvest;
+                    }
+                    return false;
+                }
+                
                 return false;
             });
 
