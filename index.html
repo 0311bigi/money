@@ -1614,9 +1614,10 @@
                                                                         </div>
                                                                         <div className="min-w-0">
                                                                             <div className="flex items-center gap-2 mb-0.5">
-                                                                                {/* 分類大字體 */}
+                                                                                {/* 🔥 分類大字體 + 補回子類別 */}
                                                                                 <p className="font-bold text-lg text-stone-800 truncate">
                                                                                     {tx.type === 'advance' ? `代墊: ${tx.debtor}` : (tx.category || '未分類')}
+                                                                                    {tx.subCategory && <span className="text-sm font-bold text-stone-400 ml-1.5">({tx.subCategory})</span>}
                                                                                 </p>
                                                                                 {/* 清楚的小標籤區分特殊類型 */}
                                                                                 {tx.type === 'advance' && <span className="text-[10px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded font-bold shrink-0">代墊</span>}
