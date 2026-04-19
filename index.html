@@ -1477,23 +1477,40 @@
                                         <div className="text-center font-bold text-stone-800 text-lg">{currentLedgerMonth.replace('-','年 ')}月</div>
                                         <button onClick={()=>changeMonthStep(1)} className="p-2 hover:bg-stone-50 rounded-lg text-stone-400"><Icon name="chevron-right"/></button>
                                     </div>
-                                    {/* 🔥 智慧動態卡片：根據按鈕自動切換內容與顏色 */}
+                                    {/* 🔥 智慧動態卡片：根據按鈕自動切換內容與顏色 (跨月預算完美整合版) */}
                                     {(() => {
                                         if (homeFilter === 'all' || homeFilter === 'inout') {
-                                            const saving = stats.inc - stats.exp;
-                                            // 💡 順便修復透支數字出現小數點的 Bug
-                                            const insightText = saving < 0 ? `透支 $${safeNum(Math.abs(saving))}` : (stats.exp > monthlyBudget ? `超出預算 $${safeNum(stats.exp - monthlyBudget)}` : `預算剩餘 $${safeNum(monthlyBudget - stats.exp)}`);
+                                            // 🔥 1. 抓取「上個月」的總收入
+                                            const [y, m] = currentLedgerMonth.split('-').map(Number);
+                                            const lmDate = new Date(y, m - 2, 1);
+                                            const lmStr = `${lmDate.getFullYear()}-${String(lmDate.getMonth() + 1).padStart(2, '0')}`;
+                                            
+                                            let lastMonthInc = 0;
+                                            transactions.forEach(t => {
+                                                if ((t.bookId || 'main') === currentBook.id && String(t.date).startsWith(lmStr) && t.type === 'income') {
+                                                    lastMonthInc += getBaseAmt(t, accounts, exchangeRates);
+                                                }
+                                            });
+
+                                            // 🔥 2. 定義「可用額度」：優先用上月收入，若沒有則用系統設定的月預算
+                                            const baseQuota = lastMonthInc > 0 ? lastMonthInc : monthlyBudget;
+                                            
+                                            // 🔥 3. 計算真正意義上的「安全可用餘額」
+                                            const realRemaining = baseQuota - stats.exp;
+                                            
+                                            const isWarning = realRemaining < 0;
+                                            const insightText = isWarning ? `透支 $${safeNum(Math.abs(realRemaining))} (已超上月總收入)` : `安全餘額 $${safeNum(realRemaining)}`;
                                             
                                             return (
                                                 <div className="rounded-xl p-6 text-white shadow-lg relative overflow-hidden bg-gradient-to-br from-orange-400 to-rose-600 transition-all duration-300">
-                                                    <p className="text-white/80 text-xs mb-1">本月結餘</p>
-                                                    <h2 className="text-4xl font-black tabular-nums">${safeNum(saving)}</h2>
+                                                    <p className="text-white/80 text-xs mb-1">本月帳面結餘</p>
+                                                    <h2 className="text-4xl font-black tabular-nums">${safeNum(stats.inc - stats.exp)}</h2>
                                                     <div className="flex gap-4 mt-6">
                                                         <div className="flex-1 p-3 bg-white/20 rounded-lg backdrop-blur-sm"><p className="text-xs text-white/80">收入</p><p className="font-bold text-white">+${safeNum(stats.inc)}</p></div>
                                                         <div className="flex-1 p-3 bg-white/20 rounded-lg backdrop-blur-sm"><p className="text-xs text-white/80">支出</p><p className="font-bold text-white">-${safeNum(stats.exp)}</p></div>
                                                     </div>
                                                     <div className="mt-4 bg-white p-2 rounded-lg text-xs flex items-center gap-2 font-bold text-stone-700 shadow-sm">
-                                                        <Icon name={homeInsight.icon} size={14} className={saving < 0 || stats.exp > monthlyBudget ? "text-rose-500" : "text-emerald-500"}/> 
+                                                        <Icon name={isWarning ? "alert-triangle" : "thumbs-up"} size={14} className={isWarning ? "text-rose-500" : "text-emerald-500"}/> 
                                                         {insightText}
                                                     </div>
                                                 </div>
@@ -1511,8 +1528,8 @@
                                                         const toAcc = accounts.find(a => a.id === tx.toAccountId);
                                                         const fromIsInv = fromAcc && fromAcc.type === 'invest';
                                                         const toIsInv = toAcc && toAcc.type === 'invest';
-                                                        if (toIsInv && !fromIsInv) investIn += baseAmt; // 轉入投資帳戶 (買進)
-                                                        if (fromIsInv && !toIsInv) investOut += baseAmt; // 轉出投資帳戶 (賣出/領回)
+                                                        if (toIsInv && !fromIsInv) investIn += baseAmt; 
+                                                        if (fromIsInv && !toIsInv) investOut += baseAmt; 
                                                     }
                                                 });
                                             });
