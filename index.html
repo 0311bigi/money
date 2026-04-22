@@ -383,7 +383,8 @@
 
             const unsubs = [
             fbRef.current.onSnapshot(fbRef.current.collection(userRef, 'transactions'), s => {
-                const docs = s.docs.map(d => ({id: d.id, ...d.data()}));
+                // 🔥 關鍵修復 1：把 id: d.id 放在最後面，強制覆蓋掉資料庫裡殘留的「幽靈 ID」，還給它們各自真實的靈魂！
+                const docs = s.docs.map(d => ({ ...d.data(), id: d.id }));
                 docs.sort((a, b) => {
                     // 🔥 修正：加上 String() 確保就算遇到舊資料空值也不會報錯崩潰
                     const dateA = String(a.date || '');
@@ -899,7 +900,7 @@
             delete base.balanceSnapshot;
             delete base.change;
             delete base.displayType;
-            
+            delete base.id; // 🔥 關鍵修復 3：徹底斬草除根！存檔前絕對不准帶入殘留的舊 ID
             try {
                 if (editingTx) {
                     // 🔥 新增：如果在「修改」時勾選了多人代墊，執行分裂邏輯
