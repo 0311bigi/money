@@ -148,8 +148,12 @@
     const safeNum = (val) => {
         if (val === null || val === undefined) return "0";
         const num = parseFloat(val);
-        // 🔥 修正：強制四捨五入，拔除小數點，讓畫面變乾淨
-        return isNaN(num) ? "0" : Math.round(num).toLocaleString();
+        if (isNaN(num)) return "0";
+        // 🔥 升級：自動判斷！保留最多 2 位小數，解決美金問題，同時擋掉 .592 這種無限小數
+        return num.toLocaleString('en-US', { 
+            minimumFractionDigits: 0, 
+            maximumFractionDigits: 2 
+        });
     };
 
     function App() {
@@ -2134,6 +2138,8 @@
                                 </div>
                                 
                                 {/* 將 type="number" 改為 text 以支援符號，保留 inputMode="decimal" 喚出手機數字鍵盤 */}
+                                {/* 將 type="number" 改為 text 以支援符號，保留 inputMode="decimal" 喚出手機數字鍵盤 */}
+                                {/* 將 type="number" 改為 text 以支援符號，保留 inputMode="decimal" 喚出手機數字鍵盤 */}
                                 <input 
                                     type="text" 
                                     inputMode="decimal" 
@@ -2141,7 +2147,10 @@
                                     placeholder="0" 
                                     value={txForm.amount} 
                                     onChange={e => {
-                                        const val = e.target.value.replace(/[^0-9+\-*/.]/g, ''); // 過濾非數學字元
+                                        let val = e.target.value.replace(/[．。]/g, '.');
+                                        val = val.replace(/[^0-9+\-*/.]/g, ''); 
+                                        // 🔥 修復：強制把連續兩個以上的點 (..) 縮減成一個 (.)，解決輸入法衝突 Bug
+                                        val = val.replace(/\.{2,}/g, '.');
                                         setTxForm({...txForm, amount: val});
                                     }} 
                                     onBlur={() => {
@@ -2157,12 +2166,17 @@
                                     autoFocus 
                                 />
                                 
-                                {/* 🔥 計算機快捷鍵 */}
-                                <div className="flex gap-2 mb-4">
-                                    {['+', '-', '*', '/'].map(op => (
+                                {/* 🔥 計算機快捷鍵 (新增防連按防護) */}
+                                <div className="flex gap-1.5 mb-4">
+                                    {['+', '-', '*', '/', '.'].map(op => (
                                         <button 
                                             key={op}
-                                            onClick={() => setTxForm({...txForm, amount: (txForm.amount || '') + op})}
+                                            onClick={() => {
+                                                let newVal = (txForm.amount || '') + op;
+                                                // 🔥 同步防護：防止快捷鍵被手抖連按產生 ++ 或是 ..
+                                                newVal = newVal.replace(/([+\-*/.])\1+/g, '$1');
+                                                setTxForm({...txForm, amount: newVal});
+                                            }}
                                             className="flex-1 bg-stone-100 hover:bg-stone-200 text-stone-600 py-1.5 rounded-lg font-black text-lg transition-colors active:scale-95"
                                         >
                                             {op === '*' ? '×' : op === '/' ? '÷' : op}
@@ -2178,7 +2192,7 @@
                                                 }
                                             } catch(e) {}
                                         }}
-                                        className="flex-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-600 py-1.5 rounded-lg font-black text-lg transition-colors active:scale-95"
+                                        className="flex-[1.5] bg-emerald-100 hover:bg-emerald-200 text-emerald-600 py-1.5 rounded-lg font-black text-lg transition-colors active:scale-95"
                                     >
                                         =
                                     </button>
