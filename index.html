@@ -971,8 +971,39 @@
                     const principal = parseFloat(splitData.principalAmount) || 0;
                     const gain = amt - principal;
                     const promises = [];
+                    
+                    // 1. 產生金流明細
                     if (principal > 0) promises.push(saveData('transactions', { ...base, type: 'transfer', amount: principal, category: '轉帳', accountId: splitData.sourceAccountId, toAccountId: txForm.accountId, note: `投資本金`, createdAt: new Date().toISOString() }));
                     if (gain !== 0) promises.push(saveData('transactions', { ...base, type: 'income', amount: gain, category: txForm.category || '投資', note: `投資獲利`, createdAt: new Date().toISOString() }));
+                    
+                    // 2. 🔥 自動扣除持倉與更新市值 (解決資產重複計算)
+                    if (splitData.sourceAccountId && splitData.sellSymbol && parseFloat(splitData.sellQty) > 0) {
+                        const srcAcc = accounts.find(a => a.id === splitData.sourceAccountId);
+                        if (srcAcc && srcAcc.holdings) {
+                            const sellQty = parseFloat(splitData.sellQty);
+                            let updatedMarketValue = 0;
+                            const updatedHoldings = srcAcc.holdings.map(h => {
+                                if (h.symbol === splitData.sellSymbol) {
+                                    const oldQty = parseFloat(h.qty) || 1;
+                                    const oldPrice = parseFloat(h.price) || 0;
+                                    const newQty = Math.max(0, oldQty - sellQty);
+                                    // 依比例扣除市值
+                                    const newPrice = newQty > 0 ? (oldPrice * (newQty / oldQty)).toFixed(2) : 0;
+                                    updatedMarketValue += parseFloat(newPrice);
+                                    return { ...h, qty: newQty.toString(), price: newPrice.toString() };
+                                }
+                                updatedMarketValue += (parseFloat(h.price) || 0);
+                                return h;
+                            });
+                            
+                            // 寫入更新帳戶
+                            const accRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid, 'accounts', srcAcc.id);
+                            promises.push(fbRef.current.updateDoc(accRef, {
+                                holdings: updatedHoldings,
+                                marketValue: updatedMarketValue
+                            }));
+                        }
+                    }
                     await Promise.all(promises);
                 } else {
                     await saveData('transactions', base);
@@ -2350,18 +2381,39 @@
                                                 <span className="text-sm font-bold text-stone-500 flex items-center gap-1">
                                                     <Icon name="pie-chart" size={16} /> 投資贖回 (本金/獲利自動拆分)
                                                 </span>
-                                                <input type="checkbox" checked={isAdvanceSplit} onChange={e => setIsAdvanceSplit(e.target.checked)} />
+                                                <input type="checkbox" checked={isAdvanceSplit} onChange={e => { setIsAdvanceSplit(e.target.checked); setSplitData({...splitData, sourceAccountId: '', principalAmount: '', sellSymbol: '', sellQty: ''}); }} />
                                             </label>
                                             
                                             {isAdvanceSplit && (
                                                 <div className="p-4 bg-stone-50 rounded-xl space-y-3 border border-stone-200 animate-in fade-in slide-in-from-top-2">
                                                     <div>
                                                         <label className="text-xs font-bold text-stone-500 mb-1 block">本金從哪個投資帳戶轉出？</label>
-                                                        <select className="w-full p-3 bg-white rounded-lg border border-stone-200 text-sm font-bold text-stone-700 outline-none focus:border-emerald-400" value={splitData.sourceAccountId || ''} onChange={e => setSplitData({...splitData, sourceAccountId: e.target.value})}>
+                                                        <select className="w-full p-3 bg-white rounded-lg border border-stone-200 text-sm font-bold text-stone-700 outline-none focus:border-emerald-400" value={splitData.sourceAccountId || ''} onChange={e => setSplitData({...splitData, sourceAccountId: e.target.value, sellSymbol: '', sellQty: ''})}>
                                                             <option value="">選擇投資帳戶...</option>
                                                             {accounts.filter(a => a.type === 'invest' && !a.isArchived).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                                                         </select>
                                                     </div>
+                                                    
+                                                    {/* 🔥 自動連動：扣除持倉股數 */}
+                                                    {(() => {
+                                                        const srcAcc = accounts.find(a => a.id === splitData.sourceAccountId);
+                                                        if (srcAcc && srcAcc.holdings && srcAcc.holdings.length > 0) {
+                                                            return (
+                                                                <div className="p-3 bg-white border border-emerald-200 rounded-lg shadow-sm">
+                                                                    <label className="text-xs font-bold text-emerald-600 mb-2 flex items-center gap-1"><Icon name="trending-down" size={14}/> 連動扣除持倉股數 (防止資產重複計算)</label>
+                                                                    <div className="flex gap-2">
+                                                                        <select className="flex-[3] p-2 bg-stone-50 rounded border border-stone-200 text-sm font-bold min-w-0" value={splitData.sellSymbol || ''} onChange={e => setSplitData({...splitData, sellSymbol: e.target.value})}>
+                                                                            <option value="">賣出哪一檔？</option>
+                                                                            {srcAcc.holdings.map(h => <option key={h.symbol} value={h.symbol}>{h.symbol} (庫存: {h.qty})</option>)}
+                                                                        </select>
+                                                                        <input type="number" step="0.001" placeholder="賣出股數" className="flex-[2] p-2 bg-stone-50 rounded border border-stone-200 text-sm tabular-nums min-w-0" value={splitData.sellQty || ''} onChange={e => setSplitData({...splitData, sellQty: e.target.value})} />
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        }
+                                                        return null;
+                                                    })()}
+
                                                     <div>
                                                         <label className="text-xs font-bold text-stone-500 mb-1 block">其中多少是本金？</label>
                                                         <input type="number" placeholder="輸入本金金額" className="w-full p-3 bg-white rounded-lg border border-stone-200 text-sm font-bold text-stone-700 tabular-nums outline-none focus:border-emerald-400" value={splitData.principalAmount || ''} onChange={e => setSplitData({...splitData, principalAmount: e.target.value})} />
@@ -2698,8 +2750,8 @@
                                 <div className="flex-1 overflow-y-auto min-h-0 mb-4">
                                     {holdingForm.length > 0 && (
                                         <div className="flex gap-2 px-1 mb-2 text-xs font-bold text-stone-400">
-                                            <div className="w-1/4">代號</div>
-                                            <div className="w-1/4">股數</div>
+                                            <div className="w-[30%]">代號</div>
+                                            <div className="w-[25%]">股數</div>
                                             <div className="flex-1">參考市值</div>
                                             <div className="w-6"></div>
                                         </div>
@@ -2709,7 +2761,7 @@
                                             <div key={idx} className="flex gap-2 items-center animate-in slide-in-from-bottom-2">
                                                 <input 
                                                     placeholder="如 AAPL" 
-                                                    className="w-1/4 p-2 bg-stone-50 border rounded-lg text-sm font-bold uppercase"
+                                                    className="w-[30%] p-1.5 px-2 bg-stone-50 border rounded-lg text-sm font-bold uppercase min-w-0"
                                                     value={h.symbol}
                                                     onChange={e => {
                                                         const newArr = [...holdingForm];
@@ -2719,7 +2771,7 @@
                                                 />
                                                 <input 
                                                     type="number" step="0.001" placeholder="0" 
-                                                    className="w-1/4 p-2 bg-stone-50 border rounded-lg text-sm tabular-nums"
+                                                    className="w-[25%] p-1.5 px-2 bg-stone-50 border rounded-lg text-sm tabular-nums min-w-0"
                                                     value={h.qty}
                                                     onChange={e => {
                                                         const newArr = [...holdingForm];
@@ -2729,7 +2781,7 @@
                                                 />
                                                 <input 
                                                     type="number" step="0.01" placeholder="0.00" 
-                                                    className="flex-1 p-2 bg-stone-50 border rounded-lg text-sm font-bold text-stone-800 tabular-nums"
+                                                    className="flex-1 p-1.5 px-2 bg-stone-50 border rounded-lg text-sm font-bold text-stone-800 tabular-nums min-w-0"
                                                     value={h.price}
                                                     onChange={e => {
                                                         const newArr = [...holdingForm];
@@ -2739,7 +2791,7 @@
                                                 />
                                                 <button 
                                                     onClick={() => setHoldingForm(holdingForm.filter((_, i) => i !== idx))}
-                                                    className="text-stone-300 hover:text-red-500 p-1"
+                                                    className="text-stone-300 hover:text-red-500 p-1 shrink-0"
                                                 >
                                                     <Icon name="x" size={18}/>
                                                 </button>
