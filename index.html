@@ -2181,9 +2181,6 @@
                                     <span className="text-[10px] text-stone-400 bg-stone-100 px-2 py-1 rounded-md font-bold tracking-wider">支援計算機功能</span>
                                 </div>
                                 
-                                {/* 將 type="number" 改為 text 以支援符號，保留 inputMode="decimal" 喚出手機數字鍵盤 */}
-                                {/* 將 type="number" 改為 text 以支援符號，保留 inputMode="decimal" 喚出手機數字鍵盤 */}
-                                {/* 將 type="number" 改為 text 以支援符號，保留 inputMode="decimal" 喚出手機數字鍵盤 */}
                                 <input 
                                     type="text" 
                                     inputMode="decimal" 
@@ -2193,12 +2190,10 @@
                                     onChange={e => {
                                         let val = e.target.value.replace(/[．。]/g, '.');
                                         val = val.replace(/[^0-9+\-*/.]/g, ''); 
-                                        // 🔥 修復：強制把連續兩個以上的點 (..) 縮減成一個 (.)，解決輸入法衝突 Bug
                                         val = val.replace(/\.{2,}/g, '.');
                                         setTxForm({...txForm, amount: val});
                                     }} 
                                     onBlur={() => {
-                                        // 失去焦點時自動計算
                                         try {
                                             const cleanStr = String(txForm.amount || '').replace(/[+\-*/.]+$/, '');
                                             if(/[+\-*/]/.test(cleanStr)){
@@ -2210,14 +2205,12 @@
                                     autoFocus 
                                 />
                                 
-                                {/* 🔥 計算機快捷鍵 (新增防連按防護) */}
                                 <div className="flex gap-1.5 mb-4">
                                     {['+', '-', '*', '/', '.'].map(op => (
                                         <button 
                                             key={op}
                                             onClick={() => {
                                                 let newVal = (txForm.amount || '') + op;
-                                                // 🔥 同步防護：防止快捷鍵被手抖連按產生 ++ 或是 ..
                                                 newVal = newVal.replace(/([+\-*/.])\1+/g, '$1');
                                                 setTxForm({...txForm, amount: newVal});
                                             }}
@@ -2263,9 +2256,9 @@
                                             {(() => {
                                                 const displayType = txForm.type === 'advance' ? 'expense' : txForm.type;
                                                 const catList = categories[displayType] || [];
-                                        
+                                                
                                                 if (catList.length === 0) return null;
-                                        
+                                                
                                                 return (
                                                     <>
                                                         <div className="flex gap-2 items-center">
@@ -2273,7 +2266,6 @@
                                                              className="flex-1 flex flex-wrap gap-2 pb-1" 
                                                              style={{ scrollSnapType: 'x mandatory' }}
                                                              onWheel={(e) => {
-                                                                 // 將滑鼠的上下滾動 (deltaY) 轉換為區塊的左右滑動 (scrollLeft)
                                                                  e.currentTarget.scrollLeft += e.deltaY;
                                                              }}
                                                             >
@@ -2283,8 +2275,8 @@
                                                                         onClick={() => setTxForm({ ...txForm, category: c.name, subCategory: '' })} 
                                                                         className={`whitespace-nowrap px-4 py-2.5 rounded-full font-bold text-sm transition-all flex items-center gap-1.5 shadow-sm active:scale-95 shrink-0 ${
                                                                             txForm.category === c.name 
-                                                                                ? 'bg-stone-800 text-white shadow-stone-300' 
-                                                                                : 'bg-white border border-stone-200 text-stone-500 hover:bg-stone-50'
+                                                                            ? 'bg-stone-800 text-white shadow-stone-300' 
+                                                                            : 'bg-white border border-stone-200 text-stone-500 hover:bg-stone-50'
                                                                         }`}
                                                                         style={{ scrollSnapAlign: 'start' }}
                                                                     >
@@ -2303,7 +2295,7 @@
                                                                 </button>
                                                             </div>
                                                         </div>
-                                        
+                                                        
                                                         {(() => {
                                                             const currentCat = catList.find(c => c.name === txForm.category);
                                                             
@@ -2316,8 +2308,8 @@
                                                                                 onClick={() => setTxForm({ ...txForm, subCategory: s })} 
                                                                                 className={`p-3 rounded-xl text-sm font-bold border transition-all active:scale-95 shadow-sm truncate ${
                                                                                     txForm.subCategory === s 
-                                                                                        ? 'bg-rose-50 text-rose-600 border-rose-200 ring-2 ring-rose-100' 
-                                                                                        : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'
+                                                                                    ? 'bg-rose-50 text-rose-600 border-rose-200 ring-2 ring-rose-100' 
+                                                                                    : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'
                                                                                 }`}
                                                                             >
                                                                                 {s}
@@ -2387,7 +2379,6 @@
                                         <div className="flex-[2] flex gap-1"><input className="bg-stone-50 p-3 rounded-lg w-full font-bold text-stone-700" placeholder="備註" value={txForm.note} onChange={e=>setTxForm({...txForm, note:e.target.value})} /><button onClick={handleVoiceInput} className="bg-stone-100 p-3 rounded-lg text-stone-500 hover:text-rose-500 hover:bg-rose-50 transition-colors"><Icon name="mic" size={20} /></button></div>
                                     </div>
                                     {txForm.type === 'expense' && (<div className="space-y-2 pt-2 border-t border-stone-100"><label className="flex items-center justify-between p-2"><span className="text-sm font-bold text-stone-500">使用待收抵扣 (互抵)</span><input type="checkbox" checked={isOffset} onChange={e=>{ setIsOffset(e.target.checked); if(e.target.checked) { setIsAdvanceSplit(false); setInstallment({...installment, enabled: false}); } }} /></label>{!isOffset && (<><label className="flex items-center justify-between p-2"><span className="text-sm font-bold text-stone-500">分期付款</span><input type="checkbox" checked={installment.enabled} onChange={e=>setInstallment({...installment, enabled:e.target.checked})} /></label>{installment.enabled && <select className="w-full bg-white border p-2 rounded" value={installment.periods} onChange={e=>setInstallment({...installment, periods:e.target.value})}><option value="3">3 期</option><option value="6">6 期</option><option value="12">12 期</option></select>}<label className="flex items-center justify-between p-2"><span className="text-sm font-bold text-stone-500">代墊款 (多人)</span><input type="checkbox" checked={isAdvanceSplit} onChange={e=>setIsAdvanceSplit(e.target.checked)} /></label>{isAdvanceSplit && (<div className="p-2 bg-stone-50 rounded space-y-2">{splitData.advances.map((adv, idx) => (<div key={idx} className="flex gap-2"><input placeholder="對象" className="border p-2 rounded w-1/2 text-sm" value={adv.debtor} onChange={e=>updateAdvanceRow(idx, 'debtor', e.target.value)} /><input type="number" placeholder="金額" className="border p-2 rounded w-1/3 text-sm tabular-nums" value={adv.amount} onChange={e=>updateAdvanceRow(idx, 'amount', e.target.value)} />{splitData.advances.length > 1 && <button onClick={()=>removeAdvanceRow(idx)} className="text-red-500"><Icon name="x" size={16}/></button>}</div>))}<button onClick={addAdvanceRow} className="text-xs text-rose-600 font-bold flex items-center gap-1 p-1">+ 新增對象</button><div className="text-xs text-stone-400 text-right mt-1 tabular-nums border-t border-stone-200 pt-1">總代墊: ${splitData.advances.reduce((s,a)=>s+(parseFloat(a.amount)||0),0)} / 自付: ${Math.max(0, (parseFloat(txForm.amount)||0) - splitData.advances.reduce((s,a)=>s+(parseFloat(a.amount)||0),0))}</div></div>)}</>)}</div>)}
-                                    {/* 🔥 新增：專屬「收入」的投資自動拆分介面解封印 */}
                                     {txForm.type === 'income' && (
                                         <div className="space-y-2 pt-2 border-t border-stone-100">
                                             <label className="flex items-center justify-between p-2 cursor-pointer">
@@ -2417,7 +2408,7 @@
                                             )}
                                         </div>
                                     )}
-								</div>
+                                </div>
                                 <div className="flex gap-2 mt-6">
                                     <button onClick={()=>setModal(null)} className="flex-1 bg-stone-100 py-3 rounded-xl font-bold text-stone-500">取消</button>
                                     <button onClick={handleTxSave} className="flex-1 bg-rose-500 text-white py-3 rounded-xl font-bold shadow-lg shadow-rose-200">儲存</button>
@@ -2425,6 +2416,7 @@
                             </div>
                         </div>
                     )}
+                    
                     {modal === 'acc' && (
                         <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4">
                             <div className="bg-white w-full max-w-sm p-6 rounded-2xl">
@@ -2480,6 +2472,7 @@
                             </div>
                         </div>
                     )}                    
+                    
                     {modal === 'recurring' && (
                         <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4">
                             <div className="bg-white w-full max-w-sm rounded-2xl max-h-[90vh] flex flex-col">
@@ -2609,7 +2602,7 @@
                                             recurring.map(r => (
                                                 <div 
                                                     key={r.id} 
-                                                    onClick={() => setRecForm({ ...r, startDate: r.startDate || '', endDate: r.endDate || '' })} // 點擊載入資料
+                                                    onClick={() => setRecForm({ ...r, startDate: r.startDate || '', endDate: r.endDate || '' })}
                                                     className={`p-3 rounded-xl border flex justify-between items-center group cursor-pointer transition-all ${recForm.id === r.id ? 'bg-blue-50 border-blue-300 ring-1 ring-blue-300' : 'bg-stone-50 border-stone-100 hover:bg-white hover:shadow-md'}`}
                                                 >
                                                     <div>
@@ -2646,11 +2639,116 @@
                             </div>
                         </div>
                     )}
-                    {modal === 'bookSelect' && (<div className="fixed inset-0 z-[200] bg-black/50 flex items-end justify-center p-4"><div className="bg-white w-full max-w-sm p-6 rounded-t-2xl"><h3 className="font-bold text-xl mb-4 text-stone-800">切換帳本</h3><button onClick={()=>setModal('addBook')} className="w-full py-3 bg-stone-100 rounded-xl font-bold mb-2 text-stone-600">+ 新增帳本</button>{books.map(b=><button key={b.id} onClick={()=>{setCurrentBook(b);setModal(null)}} className={`w-full py-3 text-left border-b font-bold ${currentBook.id===b.id?'text-rose-500':'text-stone-600'}`}>{b.name}</button>)}<button onClick={()=>setModal(null)} className="w-full py-3 mt-4 text-stone-400">取消</button></div></div>)}
-                    {modal === 'addBook' && (<div className="fixed inset-0 z-[210] bg-black/50 flex items-center justify-center p-4"><div className="bg-white w-full max-w-sm p-6 rounded-2xl"><h3 className="font-bold text-xl mb-4 text-stone-800">新增旅遊帳本</h3><input className="w-full p-3 bg-stone-50 rounded-lg mb-4 border border-stone-200" placeholder="名稱" id="newBookName"/><button onClick={()=>{saveData('books', {name: document.getElementById('newBookName').value, currency:'TWD'});setModal(null);}} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold shadow-lg">建立</button><button onClick={()=>setModal(null)} className="w-full mt-2 text-stone-400">取消</button></div></div>)}
-                    {modal === 'budget' && (<div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4"><div className="bg-white w-full max-w-sm p-6 rounded-2xl"><h3 className="font-bold text-xl mb-4 text-stone-800">設定月預算</h3><input type="number" className="w-full p-3 bg-stone-50 rounded-lg mb-4 border border-stone-200 tabular-nums" value={monthlyBudget} onChange={e=>setMonthlyBudget(e.target.value)}/><button onClick={()=>{ handleBudgetSubmit(monthlyBudget); setModal(null); }} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold shadow-lg">儲存</button><button onClick={()=>setModal(null)} className="w-full mt-2 text-stone-400">取消</button></div></div>)}
-                    {modal === 'retire' && (<div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4"><div className="bg-white w-full max-w-sm p-6 rounded-2xl"><h3 className="font-bold text-xl mb-4 text-stone-800">退休計畫</h3><div className="mb-3"><label className="text-xs text-stone-500 font-bold ml-1 mb-1 block">目前年齡</label><input type="number" className="w-full p-3 bg-stone-50 border border-stone-200 rounded-lg tabular-nums" value={retireForm.currentAge} onChange={e=>setRetireForm({...retireForm, currentAge:e.target.value})}/></div><div className="mb-3"><label className="text-xs text-stone-500 font-bold ml-1 mb-1 block">預計退休年齡</label><input type="number" className="w-full p-3 bg-stone-50 border border-stone-200 rounded-lg tabular-nums" value={retireForm.retireAge} onChange={e=>setRetireForm({...retireForm, retireAge:e.target.value})}/></div><div className="mb-5"><label className="text-xs text-stone-500 font-bold ml-1 mb-1 block">退休後預估月花費</label><input type="number" className="w-full p-3 bg-stone-50 border border-stone-200 rounded-lg tabular-nums" value={retireForm.monthlyExpense} onChange={e=>setRetireForm({...retireForm, monthlyExpense:e.target.value})}/></div><button onClick={()=>{saveData('settings', retireForm, 'retirement'); setModal(null);}} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold shadow-lg">儲存</button><button onClick={()=>setModal(null)} className="w-full mt-2 text-stone-400 py-2">取消</button></div></div>)}                    
-                    {modal === 'cat' && (<div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4"><div className="bg-white w-full max-w-sm p-6 rounded-2xl max-h-[80vh] overflow-y-auto"><h3 className="font-bold text-xl mb-4 text-stone-800">類別管理</h3><div className="flex gap-2 mb-4"><button onClick={()=>setEditingCategoryType('expense')} className={`flex-1 py-2 rounded ${editingCategoryType==='expense'?'bg-rose-500 text-white':'bg-stone-100 text-stone-500'}`}>支出</button><button onClick={()=>setEditingCategoryType('income')} className={`flex-1 py-2 rounded ${editingCategoryType==='income'?'bg-rose-500 text-white':'bg-stone-100 text-stone-500'}`}>收入</button></div><div className="space-y-2">{categories[editingCategoryType].map(c=>(<div key={c.name} className="flex justify-between p-3 bg-stone-50 rounded-lg cursor-pointer hover:bg-stone-100" onClick={()=>{setEditingCategory(c); setModal('editCat')}}><span><Icon name={c.icon} size={14} className="inline mr-2"/>{c.name}</span><span className="text-xs text-stone-400">{c.subs.length} 子類別 &gt;</span></div>))}</div><div className="mt-4 pt-4 border-t flex gap-2"><input id="newCatName" placeholder="新類別名稱" className="flex-1 p-2 border rounded" value={newCatForm.name} onChange={e=>setNewCatForm({...newCatForm, name:e.target.value, type:editingCategoryType})}/><button onClick={handleAddCategory} className="bg-blue-600 text-white px-4 rounded">新增</button></div><button onClick={()=>setModal(null)} className="w-full mt-4 text-stone-400">關閉</button></div></div>)}                    {modal === 'editCat' && editingCategory && (<div className="fixed inset-0 z-[210] bg-black/50 flex items-center justify-center p-4"><div className="bg-white w-full max-w-sm p-6 rounded-2xl"><div className="flex items-center gap-2 mb-4"><Icon name={editingCategory.icon} size={24} className="text-rose-500"/><input className="font-bold text-xl bg-transparent border-b border-stone-300 focus:border-rose-500 outline-none w-full py-1" value={editingCategory.name} onChange={(e) => handleEditMainCategoryName(e.target.value)}/></div><div className="mb-4 h-24 overflow-y-auto grid grid-cols-6 gap-2 p-2 bg-stone-50 rounded border border-stone-100">{AVAILABLE_ICONS.map(icon => (<button key={icon} onClick={() => handleEditMainCategoryIcon(icon)} className={`p-2 rounded hover:bg-stone-200 transition-colors ${editingCategory.icon === icon ? 'bg-rose-100 text-rose-500' : 'text-stone-400'}`}><Icon name={icon} size={18}/></button>))}</div><div className="flex flex-wrap gap-2 mb-4 max-h-32 overflow-y-auto">{editingCategory.subs.map(s => (<span key={s} className="bg-stone-100 px-3 py-1 rounded-full text-sm flex items-center gap-1 text-stone-600 border border-stone-200">{s} <button onClick={() => handleDeleteSubCategory(editingCategory.name, s)} className="text-stone-400 hover:text-red-500 w-4 h-4 flex items-center justify-center rounded-full hover:bg-red-50"><Icon name="x" size={12}/></button></span>))}</div><div className="flex gap-2 mb-6"><input id="newSubCat" className="flex-1 border border-stone-200 p-2 rounded-lg text-sm outline-none focus:border-rose-500 transition-colors" placeholder="新增子類別" /><button onClick={() => { const input = document.getElementById('newSubCat'); handleAddSubCategory(editingCategory.name, input.value); input.value = ''; input.focus(); }} className="bg-rose-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-rose-600 active:scale-95 transition-all">新增</button></div><div className="pt-4 border-t border-stone-100 flex flex-col gap-3"><button onClick={() => { handleDeleteCategory(editingCategory.name); setModal('cat'); }} className="w-full text-red-400 text-xs py-2 hover:bg-red-50 rounded-lg flex items-center justify-center gap-1 transition-colors"><Icon name="trash-2" size={14} /> 刪除此主類別</button><div className="flex gap-3"><button onClick={() => setModal('cat')} className="flex-1 py-3 rounded-xl bg-stone-100 text-stone-500 font-bold hover:bg-stone-200 transition-colors">取消</button><button onClick={handleSaveCategoryChanges} className="flex-1 py-3 rounded-xl bg-stone-800 text-white font-bold shadow-lg hover:bg-stone-900 transition-transform active:scale-95">確定儲存</button></div></div></div></div>)}
+                    
+                    {modal === 'bookSelect' && (
+                        <div className="fixed inset-0 z-[200] bg-black/50 flex items-end justify-center p-4">
+                            <div className="bg-white w-full max-w-sm p-6 rounded-t-2xl">
+                                <h3 className="font-bold text-xl mb-4 text-stone-800">切換帳本</h3>
+                                <button onClick={()=>setModal('addBook')} className="w-full py-3 bg-stone-100 rounded-xl font-bold mb-2 text-stone-600">+ 新增帳本</button>
+                                {books.map(b=><button key={b.id} onClick={()=>{setCurrentBook(b);setModal(null)}} className={`w-full py-3 text-left border-b font-bold ${currentBook.id===b.id?'text-rose-500':'text-stone-600'}`}>{b.name}</button>)}
+                                <button onClick={()=>setModal(null)} className="w-full py-3 mt-4 text-stone-400">取消</button>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {modal === 'addBook' && (
+                        <div className="fixed inset-0 z-[210] bg-black/50 flex items-center justify-center p-4">
+                            <div className="bg-white w-full max-w-sm p-6 rounded-2xl">
+                                <h3 className="font-bold text-xl mb-4 text-stone-800">新增旅遊帳本</h3>
+                                <input className="w-full p-3 bg-stone-50 rounded-lg mb-4 border border-stone-200" placeholder="名稱" id="newBookName"/>
+                                <button onClick={()=>{saveData('books', {name: document.getElementById('newBookName').value, currency:'TWD'});setModal(null);}} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold shadow-lg">建立</button>
+                                <button onClick={()=>setModal(null)} className="w-full mt-2 text-stone-400">取消</button>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {modal === 'budget' && (
+                        <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4">
+                            <div className="bg-white w-full max-w-sm p-6 rounded-2xl">
+                                <h3 className="font-bold text-xl mb-4 text-stone-800">設定月預算</h3>
+                                <input type="number" className="w-full p-3 bg-stone-50 rounded-lg mb-4 border border-stone-200 tabular-nums" value={monthlyBudget} onChange={e=>setMonthlyBudget(e.target.value)}/>
+                                <button onClick={()=>{ handleBudgetSubmit(monthlyBudget); setModal(null); }} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold shadow-lg">儲存</button>
+                                <button onClick={()=>setModal(null)} className="w-full mt-2 text-stone-400">取消</button>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {modal === 'retire' && (
+                        <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4">
+                            <div className="bg-white w-full max-w-sm p-6 rounded-2xl">
+                                <h3 className="font-bold text-xl mb-4 text-stone-800">退休計畫</h3>
+                                <div className="mb-3"><label className="text-xs text-stone-500 font-bold ml-1 mb-1 block">目前年齡</label><input type="number" className="w-full p-3 bg-stone-50 border border-stone-200 rounded-lg tabular-nums" value={retireForm.currentAge} onChange={e=>setRetireForm({...retireForm, currentAge:e.target.value})}/></div>
+                                <div className="mb-3"><label className="text-xs text-stone-500 font-bold ml-1 mb-1 block">預計退休年齡</label><input type="number" className="w-full p-3 bg-stone-50 border border-stone-200 rounded-lg tabular-nums" value={retireForm.retireAge} onChange={e=>setRetireForm({...retireForm, retireAge:e.target.value})}/></div>
+                                <div className="mb-5"><label className="text-xs text-stone-500 font-bold ml-1 mb-1 block">退休後預估月花費</label><input type="number" className="w-full p-3 bg-stone-50 border border-stone-200 rounded-lg tabular-nums" value={retireForm.monthlyExpense} onChange={e=>setRetireForm({...retireForm, monthlyExpense:e.target.value})}/></div>
+                                <button onClick={()=>{saveData('settings', retireForm, 'retirement'); setModal(null);}} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold shadow-lg">儲存</button>
+                                <button onClick={()=>setModal(null)} className="w-full mt-2 text-stone-400 py-2">取消</button>
+                            </div>
+                        </div>
+                    )}                    
+                    
+                    {modal === 'cat' && (
+                        <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4">
+                            <div className="bg-white w-full max-w-sm p-6 rounded-2xl max-h-[80vh] overflow-y-auto">
+                                <h3 className="font-bold text-xl mb-4 text-stone-800">類別管理</h3>
+                                <div className="flex gap-2 mb-4">
+                                    <button onClick={()=>setEditingCategoryType('expense')} className={`flex-1 py-2 rounded ${editingCategoryType==='expense'?'bg-rose-500 text-white':'bg-stone-100 text-stone-500'}`}>支出</button>
+                                    <button onClick={()=>setEditingCategoryType('income')} className={`flex-1 py-2 rounded ${editingCategoryType==='income'?'bg-rose-500 text-white':'bg-stone-100 text-stone-500'}`}>收入</button>
+                                </div>
+                                <div className="space-y-2">
+                                    {categories[editingCategoryType].map(c=>(
+                                        <div key={c.name} className="flex justify-between p-3 bg-stone-50 rounded-lg cursor-pointer hover:bg-stone-100" onClick={()=>{setEditingCategory(c); setModal('editCat')}}>
+                                            <span><Icon name={c.icon} size={14} className="inline mr-2"/>{c.name}</span>
+                                            {/* 🔥 這裡就是徹底修復未跳脫的角括號錯誤的地方！ */}
+                                            <span className="text-xs text-stone-400">{c.subs.length} 子類別 &gt;</span>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="mt-4 pt-4 border-t flex gap-2">
+                                    <input id="newCatName" placeholder="新類別名稱" className="flex-1 p-2 border rounded" value={newCatForm.name} onChange={e=>setNewCatForm({...newCatForm, name:e.target.value, type:editingCategoryType})}/>
+                                    <button onClick={handleAddCategory} className="bg-blue-600 text-white px-4 rounded">新增</button>
+                                </div>
+                                <button onClick={()=>setModal(null)} className="w-full mt-4 text-stone-400">關閉</button>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {modal === 'editCat' && editingCategory && (
+                        <div className="fixed inset-0 z-[210] bg-black/50 flex items-center justify-center p-4">
+                            <div className="bg-white w-full max-w-sm p-6 rounded-2xl">
+                                <div className="flex items-center gap-2 mb-4">
+                                    <Icon name={editingCategory.icon} size={24} className="text-rose-500"/>
+                                    <input className="font-bold text-xl bg-transparent border-b border-stone-300 focus:border-rose-500 outline-none w-full py-1" value={editingCategory.name} onChange={(e) => handleEditMainCategoryName(e.target.value)}/>
+                                </div>
+                                <div className="mb-4 h-24 overflow-y-auto grid grid-cols-6 gap-2 p-2 bg-stone-50 rounded border border-stone-100">
+                                    {AVAILABLE_ICONS.map(icon => (
+                                        <button key={icon} onClick={() => handleEditMainCategoryIcon(icon)} className={`p-2 rounded hover:bg-stone-200 transition-colors ${editingCategory.icon === icon ? 'bg-rose-100 text-rose-500' : 'text-stone-400'}`}>
+                                            <Icon name={icon} size={18}/>
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="flex flex-wrap gap-2 mb-4 max-h-32 overflow-y-auto">
+                                    {editingCategory.subs.map(s => (
+                                        <span key={s} className="bg-stone-100 px-3 py-1 rounded-full text-sm flex items-center gap-1 text-stone-600 border border-stone-200">
+                                            {s} 
+                                            <button onClick={() => handleDeleteSubCategory(editingCategory.name, s)} className="text-stone-400 hover:text-red-500 w-4 h-4 flex items-center justify-center rounded-full hover:bg-red-50"><Icon name="x" size={12}/></button>
+                                        </span>
+                                    ))}
+                                </div>
+                                <div className="flex gap-2 mb-6">
+                                    <input id="newSubCat" className="flex-1 border border-stone-200 p-2 rounded-lg text-sm outline-none focus:border-rose-500 transition-colors" placeholder="新增子類別" />
+                                    <button onClick={() => { const input = document.getElementById('newSubCat'); handleAddSubCategory(editingCategory.name, input.value); input.value = ''; input.focus(); }} className="bg-rose-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-rose-600 active:scale-95 transition-all">新增</button>
+                                </div>
+                                <div className="pt-4 border-t border-stone-100 flex flex-col gap-3">
+                                    <button onClick={() => { handleDeleteCategory(editingCategory.name); setModal('cat'); }} className="w-full text-red-400 text-xs py-2 hover:bg-red-50 rounded-lg flex items-center justify-center gap-1 transition-colors"><Icon name="trash-2" size={14} /> 刪除此主類別</button>
+                                    <div className="flex gap-3">
+                                        <button onClick={() => setModal('cat')} className="flex-1 py-3 rounded-xl bg-stone-100 text-stone-500 font-bold hover:bg-stone-200 transition-colors">取消</button>
+                                        <button onClick={handleSaveCategoryChanges} className="flex-1 py-3 rounded-xl bg-stone-800 text-white font-bold shadow-lg hover:bg-stone-900 transition-transform active:scale-95">確定儲存</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
                     {modal === 'rate' && (
                         <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4">
                             <div className="bg-white w-full max-w-sm p-6 rounded-2xl max-h-[80vh] overflow-y-auto">
@@ -2710,6 +2808,7 @@
                             </div>
                         </div>
                     )}
+                    
                     {modal === 'market' && editTarget && (
                         <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4">
                             <div className="bg-white w-full max-w-md p-6 rounded-2xl max-h-[90vh] overflow-y-auto flex flex-col">
@@ -2832,6 +2931,7 @@
                             </div>
                         </div>
                     )}
+                    
                     {modal === 'settle' && settleTargetTx && (
                         <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4">
                             <div className="bg-white w-full max-w-sm p-6 rounded-2xl animate-in fade-in zoom-in-95 duration-200">
@@ -2861,7 +2961,7 @@
                             </div>
                         </div>
                     )}                
-                    </div>
+                </div>
             );
         }
         const root = ReactDOM.createRoot(document.getElementById('root'));
