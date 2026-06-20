@@ -65,7 +65,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.21.0/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     
@@ -95,9 +95,7 @@
         window.isFirebaseSDKReady = true;
     </script>
 
-<script type="text/babel">
-/** @jsx React.createElement */
-/** @jsxFrag React.Fragment */
+<script type="text/babel" data-presets="react">
 
     const { useState, useEffect, useMemo, useRef } = React;
     const Icon = ({ name, size = 24, className = "" }) => {
@@ -709,34 +707,27 @@
         const groupedTransactions = useMemo(() => {
             const targetTxs = transactions.filter(t => (t.bookId||'main')===currentBook.id && String(t.date || '').startsWith(currentLedgerMonth));
             
-            // 🔥 終極嚴格版：明細過濾邏輯
             const filteredTxs = targetTxs.filter(tx => {
                 if (homeFilter === 'all') return true;
                 
-                // 預先抓出帳戶資料 (加上 ?. 防呆保護)
                 const fromAcc = accounts.find(a => a.id === tx.accountId);
                 const toAcc = accounts.find(a => a.id === tx.toAccountId);
                 
-                // 1. 收支：純粹的日常花費與真實收入 (嚴格排除代墊與還款)
                 if (homeFilter === 'inout') {
                     return tx.type === 'expense' || tx.type === 'income';
                 }
                 
-                // 2. 投資：極度嚴格判斷
                 if (homeFilter === 'invest') {
-                    // 條件 A：如果是轉帳，來源或目的「必須」是投資帳戶
                     if (tx.type === 'transfer') {
-                        return (fromAcc?.type === 'invest') || (toAcc?.type === 'invest');
+                        return (fromAcc && fromAcc.type === 'invest') || (toAcc && toAcc.type === 'invest');
                     }
-                    // 條件 B：如果是收支，類別名稱必須包含「投資」二字，或是從「投資帳戶」扣款
-                    return (tx.category && tx.category.includes('投資')) || (fromAcc?.type === 'invest');
+                    return (tx.category && tx.category.includes('投資')) || (fromAcc && fromAcc.type === 'invest');
                 }
                 
-                // 3. 轉帳：純粹的資金流動 (排除投資)
                 if (homeFilter === 'transfer') {
                     if (tx.type === 'transfer') {
-                        const isInvest = (fromAcc?.type === 'invest') || (toAcc?.type === 'invest');
-                        return !isInvest; // 必須是轉帳，且絕對不能是投資
+                        const isInvest = (fromAcc && fromAcc.type === 'invest') || (toAcc && toAcc.type === 'invest');
+                        return !isInvest;
                     }
                     return false;
                 }
@@ -838,7 +829,14 @@
                 else if (t.displayType === 'transfer_in' || t.displayType === 'transfer_out') mTrans += t.change;
             });
 
-            return { displayList, stats: { mIncome, mExpense, mTrans }, currentBalance: balance, cycleRange };
+            const groupedList = [];
+            displayList.forEach(tx => {
+                const lastGroup = groupedList[groupedList.length - 1];
+                if (lastGroup && lastGroup.date === tx.date) { lastGroup.txs.push(tx); } 
+                else { groupedList.push({ date: tx.date, txs: [tx] }); }
+            });
+
+            return { displayList, groupedList, stats: { mIncome, mExpense, mTrans }, currentBalance: balance, cycleRange };
         }, [viewingAccount, transactions, accountDetailMonth]);
 
             const handleTxSave = async () => { 
@@ -963,29 +961,29 @@
                                     const newQty = Math.max(0, oldQty - sellQty);
                                     const newPrice = newQty > 0 ? (oldPrice * (newQty / oldQty)).toFixed(2) : 0;
                                     updatedMarketValue += parseFloat(newPrice);
-                                    return { ...h, qty: newQty.toString(), price: newPrice.toString() };
-                                }
-                                updatedMarketValue += (parseFloat(h.price) || 0);
-                                return h;
-                            });
-                            
-                            const accRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid, 'accounts', srcAcc.id);
-                            promises.push(fbRef.current.updateDoc(accRef, {
-                                holdings: updatedHoldings,
-                                marketValue: updatedMarketValue
-                            }));
-                        }
-                    }
-                    await Promise.all(promises);
-                } else {
-                    await saveData('transactions', base);
-                }
-                setModal(null);
-            } catch (e) {
-                console.error(e);
-                alert("儲存失敗，請檢查網路連線");
-            }
-        };
+									return { ...h, qty: newQty.toString(), price: newPrice.toString() };
+                                                                }
+                                                                updatedMarketValue += (parseFloat(h.price) || 0);
+                                                                return h;
+                                                            });
+                                                            
+                                                            const accRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid, 'accounts', srcAcc.id);
+                                                            promises.push(fbRef.current.updateDoc(accRef, {
+                                                                holdings: updatedHoldings,
+                                                                marketValue: updatedMarketValue
+                                                            }));
+                                                        }
+                                                    }
+                                                    await Promise.all(promises);
+                                                } else {
+                                                    await saveData('transactions', base);
+                                                }
+                                                setModal(null);
+                                            } catch (e) {
+                                                console.error(e);
+                                                alert("儲存失敗，請檢查網路連線");
+                                            }
+                                        };
 
         const handleRecurringSave = async () => {
             if(!recForm.name || !recForm.amount) { alert("請輸入名稱與金額"); return; }
@@ -1301,7 +1299,7 @@
                                         <button onClick={()=>changeDetailMonthStep(-1)} className="p-2 hover:bg-stone-50 rounded-lg text-stone-400"><Icon name="chevron-left"/></button>
                                         <div className="text-center">
                                             <div className="font-bold text-stone-800 text-lg">{accountDetailMonth.replace('-','年 ')}月</div>
-                                            {accountDetailData?.cycleRange && (
+                                            {accountDetailData && accountDetailData.cycleRange && (
                                                 <div className="text-[10px] text-stone-400 font-bold bg-stone-100 px-2 py-0.5 rounded-full mt-1">
                                                     帳單週期: {accountDetailData.cycleRange}
                                                 </div>
@@ -1372,100 +1370,100 @@
                                 </div>
                                 <div className="space-y-2">
                                     <h3 className="text-xs font-bold text-stone-400 uppercase ml-1 mt-4">交易明細 (含餘額)</h3>
-                                    {accountDetailData?.displayList.length === 0 ? <div className="text-center py-10 text-stone-400 text-sm">本月無交易</div> : 
-                                        (() => {
-                                            const groups = [];
-                                            accountDetailData.displayList.forEach(tx => {
-                                                const lastGroup = groups[groups.length - 1];
-                                                if (lastGroup && lastGroup.date === tx.date) { lastGroup.txs.push(tx); } 
-                                                else { groups.push({ date: tx.date, txs: [tx] }); }
-                                            });
-                                            return groups.map(group => (
-                                                <div key={group.date} className="mb-4">
-                                                    <div className="flex items-center gap-2 mb-2 px-1">
-                                                        <span className="text-xs font-bold text-stone-500 bg-stone-200 px-2 py-1 rounded-md tabular-nums">{group.date}</span>
-                                                        <span className="text-xs font-bold text-stone-400">{getDayOfWeek(group.date)}</span>
-                                                    </div>
-                                                    <div className="bg-white rounded-xl shadow-sm border border-stone-100 overflow-hidden">
-                                                        {group.txs.map((tx, idx) => {
-                                                            return (
-                                                                <div key={tx.id} onClick={() => openTxModal(tx.type, tx)} className={`p-3 flex justify-between items-center cursor-pointer hover:bg-stone-50 group ${idx !== group.txs.length - 1 ? 'border-b border-stone-100' : ''}`}>
-                                                                    <div className="flex items-center gap-3 overflow-hidden">
-                                                                        
-                                                                        {isReconcileMode && (
-                                                                            <div 
-                                                                                onClick={(e) => toggleReconcile(tx.id, tx.isReconciled, e)}
-                                                                                className={`shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors cursor-pointer hover:scale-110 active:scale-95 ${tx.isReconciled ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-stone-300 text-transparent hover:border-emerald-400'}`}
-                                                                            >
-                                                                                <Icon name="check" size={14}/>
+                                    {(!accountDetailData || accountDetailData.displayList.length === 0) ? (
+                                        <div className="text-center py-10 text-stone-400 text-sm">本月無交易</div>
+                                    ) : (
+                                        <React.Fragment>
+                                            {(() => {
+                                                return accountDetailData.groupedList.map(group => {
+                                                    return (
+                                                        <div key={group.date} className="mb-4">
+                                                            <div className="flex items-center gap-2 mb-2 px-1">
+                                                                <span className="text-xs font-bold text-stone-500 bg-stone-200 px-2 py-1 rounded-md tabular-nums">{group.date}</span>
+                                                                <span className="text-xs font-bold text-stone-400">{getDayOfWeek(group.date)}</span>
+                                                            </div>
+                                                            <div className="bg-white rounded-xl shadow-sm border border-stone-100 overflow-hidden">
+                                                                {group.txs.map((tx, idx) => {
+                                                                    return (
+                                                                        <div key={tx.id} onClick={() => openTxModal(tx.type, tx)} className={`p-3 flex justify-between items-center cursor-pointer hover:bg-stone-50 group ${idx !== group.txs.length - 1 ? 'border-b border-stone-100' : ''}`}>
+                                                                            <div className="flex items-center gap-3 overflow-hidden">
+                                                                                
+                                                                                {isReconcileMode && (
+                                                                                    <div 
+                                                                                        onClick={(e) => toggleReconcile(tx.id, tx.isReconciled, e)}
+                                                                                        className={`shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors cursor-pointer hover:scale-110 active:scale-95 ${tx.isReconciled ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-stone-300 text-transparent hover:border-emerald-400'}`}
+                                                                                    >
+                                                                                        <Icon name="check" size={14}/>
+                                                                                    </div>
+                                                                                )}
+                                                                         
+                                                                                <div className={`p-2 rounded-lg shrink-0 relative ${tx.displayType==='income' || tx.type==='repayment' ?'bg-emerald-100 text-emerald-600': tx.displayType==='expense'?'bg-rose-100 text-rose-600':'bg-stone-100 text-stone-600'}`}>
+                                                                                    <Icon name={getCategoryIcon(tx.category, tx.type)} size={18}/>
+                                                                                    {!isReconcileMode && tx.isReconciled && (
+                                                                                        <div className="absolute -top-1 -right-1 bg-emerald-500 text-white rounded-full p-0.5 shadow-sm">
+                                                                                            <Icon name="check" size={8} strokeWidth={4} />
+                                                                                        </div>
+                                                                                    )}
+                                                                                </div>
+                                                                                <div className="min-w-0">
+                                                                                    <p className="font-bold text-sm text-stone-800 truncate">
+                                                                                        {tx.type === 'advance' ? `代墊: ${tx.debtor}` : (tx.category || '未分類')}
+                                                                                        {tx.subCategory && <span className="text-xs text-stone-400 ml-1 font-normal">({tx.subCategory})</span>}
+                                                                                    </p>
+                                                                                    <p className="text-xs text-stone-500 truncate mt-0.5">{tx.note}</p>
+                                                                                </div>
                                                                             </div>
-                                                                        )}
-                                                                 
-                                                                        <div className={`p-2 rounded-lg shrink-0 relative ${tx.displayType==='income' || tx.type==='repayment' ?'bg-emerald-100 text-emerald-600': tx.displayType==='expense'?'bg-rose-100 text-rose-600':'bg-stone-100 text-stone-600'}`}>
-                                                                            <Icon name={getCategoryIcon(tx.category, tx.type)} size={18}/>
-                                                                            {!isReconcileMode && tx.isReconciled && (
-                                                                                <div className="absolute -top-1 -right-1 bg-emerald-500 text-white rounded-full p-0.5 shadow-sm">
-                                                                                    <Icon name="check" size={8} strokeWidth={4} />
-                                                                                </div>
-                                                                            )}
-                                                                        </div>
-                                                                        <div className="min-w-0">
-                                                                            <p className="font-bold text-sm text-stone-800 truncate">
-                                                                                {tx.type === 'advance' ? `代墊: ${tx.debtor}` : (tx.category || '未分類')}
-                                                                                {tx.subCategory && <span className="text-xs text-stone-400 ml-1 font-normal">({tx.subCategory})</span>}
-                                                                            </p>
-                                                                            <p className="text-xs text-stone-500 truncate mt-0.5">{tx.note}</p>
-                                                                        </div>
-                                                                    </div>
-                                                                    
-                                                                    <div className="flex items-center gap-3">
-                                                                        <div className="text-right">
-                                                                            <p className={`font-bold tabular-nums ${tx.change > 0 ? 'text-emerald-600' : 'text-stone-800'}`}>{tx.change > 0 ? '+' : ''}{safeNum(tx.change)}</p>
-                                                                            <p className="text-[10px] text-stone-400 font-bold mt-0.5 tabular-nums">餘額: ${safeNum(tx.balanceSnapshot)}</p>
-                                                                        </div>
-
-                                                                        <div className="flex flex-col gap-1 pl-2 border-l border-stone-100">
-                                                                            {group.txs.length > 1 && (
-                                                                                <div className="flex flex-col">
-                                                                                    <button 
-                                                                                        onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleReorder(tx, -1); }} 
-                                                                                        disabled={idx === 0}
-                                                                                        className={`p-0.5 rounded ${idx === 0 ? 'text-stone-200' : 'text-stone-400 hover:text-blue-500 hover:bg-blue-50'}`}
-                                                                                    >
-                                                                                        <Icon name="chevron-up" size={14}/>
-                                                                                    </button>
-                                                                                    <button 
-                                                                                        onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleReorder(tx, 1); }} 
-                                                                                        disabled={idx === group.txs.length - 1}
-                                                                                        className={`p-0.5 rounded ${idx === group.txs.length - 1 ? 'text-stone-200' : 'text-stone-400 hover:text-blue-500 hover:bg-blue-50'}`}
-                                                                                    >
-                                                                                        <Icon name="chevron-down" size={14}/>
-                                                                                    </button>
-                                                                                </div>
-                                                                            )}
                                                                             
-                                                                            <button 
-                                                                                onClick={(e) => { 
-                                                                                    e.stopPropagation(); 
-                                                                                    e.preventDefault(); 
-                                                                                    if(window.confirm('確定要刪除這筆交易嗎？\n(將直接影響餘額計算)')) {
-                                                                                        deleteData('transactions', tx.id);
-                                                                                    }
-                                                                                }} 
-                                                                                className="p-1 text-stone-300 hover:text-red-500 hover:bg-red-50 rounded"
-                                                                            >
-                                                                                <Icon name="trash-2" size={14}/>
-                                                                            </button>
+                                                                            <div className="flex items-center gap-3">
+                                                                                <div className="text-right">
+                                                                                    <p className={`font-bold tabular-nums ${tx.change > 0 ? 'text-emerald-600' : 'text-stone-800'}`}>{tx.change > 0 ? '+' : ''}{safeNum(tx.change)}</p>
+                                                                                    <p className="text-[10px] text-stone-400 font-bold mt-0.5 tabular-nums">餘額: ${safeNum(tx.balanceSnapshot)}</p>
+                                                                                </div>
+
+                                                                                <div className="flex flex-col gap-1 pl-2 border-l border-stone-100">
+                                                                                    {group.txs.length > 1 && (
+                                                                                        <div className="flex flex-col">
+                                                                                            <button 
+                                                                                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleReorder(tx, -1); }} 
+                                                                                                disabled={idx === 0}
+                                                                                                className={`p-0.5 rounded ${idx === 0 ? 'text-stone-200' : 'text-stone-400 hover:text-blue-500 hover:bg-blue-50'}`}
+                                                                                            >
+                                                                                                <Icon name="chevron-up" size={14}/>
+                                                                                            </button>
+                                                                                            <button 
+                                                                                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleReorder(tx, 1); }} 
+                                                                                                disabled={idx === group.txs.length - 1}
+                                                                                                className={`p-0.5 rounded ${idx === group.txs.length - 1 ? 'text-stone-200' : 'text-stone-400 hover:text-blue-500 hover:bg-blue-50'}`}
+                                                                                            >
+                                                                                                <Icon name="chevron-down" size={14}/>
+                                                                                            </button>
+                                                                                        </div>
+                                                                                    )}
+                                                                                    
+                                                                                    <button 
+                                                                                        onClick={(e) => { 
+                                                                                            e.stopPropagation(); 
+                                                                                            e.preventDefault(); 
+                                                                                            if(window.confirm('確定要刪除這筆交易嗎？\n(將直接影響餘額計算)')) {
+                                                                                                deleteData('transactions', tx.id);
+                                                                                            }
+                                                                                        }} 
+                                                                                        className="p-1 text-stone-300 hover:text-red-500 hover:bg-red-50 rounded"
+                                                                                    >
+                                                                                        <Icon name="trash-2" size={14}/>
+                                                                                    </button>
+                                                                                </div>
+                                                                            </div>
                                                                         </div>
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                </div>
-                                            ));
-                                        })()
-                                    }
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                });
+                                            })()}
+                                        </React.Fragment>
+                                    )}
                                 </div>
                                 <button onClick={() => openTxModal('expense')} className="fixed bottom-8 right-6 bg-rose-500 text-white p-4 rounded-full shadow-xl z-30 transition-transform active:scale-95 border-4 border-stone-50"><Icon name="plus" size={32} /></button>
                             </div>
@@ -1572,108 +1570,113 @@
                                     
                                     <div className="space-y-4">
                                         {groupedTransactions.length === 0 ? <div className="text-center py-16 text-stone-400 text-sm border-2 border-dashed border-stone-200 rounded-xl bg-white">本月尚無紀錄</div> : 
-                                            groupedTransactions.map(([date, txs]) => {
-                                                let dailyExp = 0;
-                                                let dailyInc = 0;
-                                                txs.forEach(t => {
-                                                    const amt = getBaseAmt(t, accounts, exchangeRates);
-                                                    if (t.type === 'expense') dailyExp += amt;
-                                                    if (t.type === 'income') dailyInc += amt;
-                                                });
+                                            <React.Fragment>
+                                                {(() => {
+                                                    return groupedTransactions.map(([date, txs]) => {
+                                                        let dailyExp = 0;
+                                                        let dailyInc = 0;
+                                                        txs.forEach(t => {
+                                                            const amt = getBaseAmt(t, accounts, exchangeRates);
+                                                            if (t.type === 'expense') dailyExp += amt;
+                                                            if (t.type === 'income') dailyInc += amt;
+                                                        });
 
-                                                return (
-                                                <div key={date} className="animate-in slide-in-from-bottom mb-6">
-                                                    <div className="flex justify-between items-end mb-2 px-2">
-                                                        <div className="flex items-baseline gap-2">
-                                                            <span className="text-xl font-black text-stone-800 tabular-nums">{date.replace(/-/g, '/')}</span>
-                                                            <span className="text-sm font-bold text-stone-400">{getDayOfWeek(date)}</span>
-                                                        </div>
-                                                        <div className="text-xs font-bold flex gap-3">
-                                                            {dailyInc > 0 && <span className="text-emerald-500">收入: {safeNum(dailyInc)}</span>}
-                                                            {dailyExp > 0 && <span className="text-stone-500">支出: {safeNum(dailyExp)}</span>}
-                                                        </div>
-                                                    </div>
-                                                    
-                                                    <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-                                                        {txs.map((tx, idx) => {
-                                                            const acc = accounts.find(a => a.id === tx.accountId);
-                                                            let accName = acc ? acc.name : (tx.accountId === OFFSET_ACCOUNT_ID ? '抵扣' : '未知');
-                                                            if (tx.type === 'transfer' && tx.toAccountId) {
-                                                                const toAcc = accounts.find(a => a.id === tx.toAccountId);
-                                                                accName += ` ➝ ${toAcc ? toAcc.name : '未知'}`;
-                                                            }
-                                                            
-                                                            let amountColor = "text-stone-800";
-                                                            let sign = "";
-                                                            let iconBg = "bg-stone-100 text-stone-500";
-                                                            
-                                                            if (tx.type === 'income' || tx.type === 'repayment') { 
-                                                                amountColor = "text-emerald-500"; sign = "+"; iconBg = "bg-emerald-50 text-emerald-500";
-                                                            } else if (tx.type === 'expense') { 
-                                                                amountColor = "text-stone-800"; sign = ""; iconBg = "bg-stone-100 text-stone-600";
-                                                            } else if (tx.type === 'advance') {
-                                                                amountColor = "text-indigo-500"; sign = ""; iconBg = "bg-indigo-50 text-indigo-500";
-                                                            } else if (tx.type === 'transfer') {
-                                                                amountColor = "text-stone-400"; sign = ""; iconBg = "bg-slate-50 text-slate-400";
-                                                            }
-
-                                                            return (
-                                                                <div key={tx.id} onClick={() => openTxModal(tx.type, tx)} className={`p-4 flex justify-between items-center cursor-pointer hover:bg-stone-50 transition-colors ${idx !== txs.length - 1 ? 'border-b border-stone-100' : ''}`}>
-                                                                    <div className="flex items-center gap-4 overflow-hidden">
-                                                                        <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${iconBg}`}>
-                                                                            <Icon name={getCategoryIcon(tx.category, tx.type)} size={22}/>
-                                                                        </div>
-                                                                        <div className="min-w-0">
-                                                                            <div className="flex items-center gap-2 mb-0.5">
-                                                                                <p className="font-bold text-lg text-stone-800 truncate">
-                                                                                    {tx.type === 'advance' ? `代墊: ${tx.debtor}` : (tx.category || '未分類')}
-                                                                                    {tx.subCategory && <span className="text-sm font-bold text-stone-400 ml-1.5">({tx.subCategory})</span>}
-                                                                                </p>
-                                                                                {tx.type === 'advance' && <span className="text-[10px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded font-bold shrink-0">代墊</span>}
-                                                                                {tx.type === 'repayment' && <span className="text-[10px] bg-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded font-bold shrink-0">收回代墊</span>}
-                                                                                {tx.type === 'transfer' && <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-bold shrink-0">轉帳</span>}
-                                                                            </div>
-                                                                            <p className="text-sm text-stone-500 truncate flex items-center gap-1.5">
-                                                                                <span className="font-medium text-stone-400">{accName}</span>
-                                                                                {tx.note && <span className="text-stone-300">|</span>}
-                                                                                <span>{tx.note}</span>
-                                                                            </p>
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="text-right shrink-0 ml-3 flex flex-col items-end justify-center">
-                                                                        {(() => {
-                                                                            const isForeign = acc && acc.currency !== 'TWD';
-                                                                            const baseAmt = getBaseAmt(tx, accounts, exchangeRates);
-                                                                            return (
-                                                                                <div className="text-right">
-                                                                                    <p className={`text-xl font-black tabular-nums ${amountColor}`}>
-                                                                                        {sign}{safeNum(isForeign ? baseAmt : tx.amount)}
-                                                                                    </p>
-                                                                                    {isForeign && <p className="text-[11px] text-stone-400 mt-0.5 font-bold">({acc.currency} {safeNum(tx.amount)})</p>}
-                                                                                </div>
-                                                                            );
-                                                                        })()}
-                                                                        
-                                                                        <div className="mt-1.5 flex items-center justify-end">
-                                                                            {tx.type === 'repayment' ? (
-                                                                                <button onClick={(e)=>{e.stopPropagation(); handleUndoRepayment(tx);}} className="text-stone-300 hover:text-blue-500 p-1 transition-colors" title="還原此筆還款">
-                                                                                    <Icon name="rotate-ccw" size={15}/>
-                                                                                </button>
-                                                                            ) : (
-                                                                                <button onClick={(e)=>{e.stopPropagation(); if(confirm('確定要刪除這筆交易嗎？')) deleteData('transactions', tx.id);}} className="text-stone-300 hover:text-rose-500 p-1 transition-colors">
-                                                                                    <Icon name="trash-2" size={15}/>
-                                                                                </button>
-                                                                            )}
-                                                                        </div>
-                                                                    </div>
+                                                        return (
+                                                        <div key={date} className="animate-in slide-in-from-bottom mb-6">
+                                                            <div className="flex justify-between items-end mb-2 px-2">
+                                                                <div className="flex items-baseline gap-2">
+                                                                    <span className="text-xl font-black text-stone-800 tabular-nums">{date.replace(/-/g, '/')}</span>
+                                                                    <span className="text-sm font-bold text-stone-400">{getDayOfWeek(date)}</span>
                                                                 </div>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                </div>
-                                            ));
-                                        })()
-                                    }
+                                                                <div className="text-xs font-bold flex gap-3">
+                                                                    {dailyInc > 0 && <span className="text-emerald-500">收入: {safeNum(dailyInc)}</span>}
+                                                                    {dailyExp > 0 && <span className="text-stone-500">支出: {safeNum(dailyExp)}</span>}
+                                                                </div>
+                                                            </div>
+                                                            
+                                                            <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+                                                                {txs.map((tx, idx) => {
+                                                                    const acc = accounts.find(a => a.id === tx.accountId);
+                                                                    let accName = acc ? acc.name : (tx.accountId === OFFSET_ACCOUNT_ID ? '抵扣' : '未知');
+                                                                    if (tx.type === 'transfer' && tx.toAccountId) {
+                                                                        const toAcc = accounts.find(a => a.id === tx.toAccountId);
+                                                                        accName += ` ➝ ${toAcc ? toAcc.name : '未知'}`;
+                                                                    }
+                                                                    
+                                                                    let amountColor = "text-stone-800";
+                                                                    let sign = "";
+                                                                    let iconBg = "bg-stone-100 text-stone-500";
+                                                                    
+                                                                    if (tx.type === 'income' || tx.type === 'repayment') { 
+                                                                        amountColor = "text-emerald-500"; sign = "+"; iconBg = "bg-emerald-50 text-emerald-500";
+                                                                    } else if (tx.type === 'expense') { 
+                                                                        amountColor = "text-stone-800"; sign = ""; iconBg = "bg-stone-100 text-stone-600";
+                                                                    } else if (tx.type === 'advance') {
+                                                                        amountColor = "text-indigo-500"; sign = ""; iconBg = "bg-indigo-50 text-indigo-500";
+                                                                    } else if (tx.type === 'transfer') {
+                                                                        amountColor = "text-stone-400"; sign = ""; iconBg = "bg-slate-50 text-slate-400";
+                                                                    }
+
+                                                                    return (
+                                                                        <div key={tx.id} onClick={() => openTxModal(tx.type, tx)} className={`p-4 flex justify-between items-center cursor-pointer hover:bg-stone-50 transition-colors ${idx !== txs.length - 1 ? 'border-b border-stone-100' : ''}`}>
+                                                                            <div className="flex items-center gap-4 overflow-hidden">
+                                                                                <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${iconBg}`}>
+                                                                                    <Icon name={getCategoryIcon(tx.category, tx.type)} size={22}/>
+                                                                                </div>
+                                                                                <div className="min-w-0">
+                                                                                    <div className="flex items-center gap-2 mb-0.5">
+                                                                                        <p className="font-bold text-lg text-stone-800 truncate">
+                                                                                            {tx.type === 'advance' ? `代墊: ${tx.debtor}` : (tx.category || '未分類')}
+                                                                                            {tx.subCategory && <span className="text-sm font-bold text-stone-400 ml-1.5">({tx.subCategory})</span>}
+                                                                                        </p>
+                                                                                        {tx.type === 'advance' && <span className="text-[10px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded font-bold shrink-0">代墊</span>}
+                                                                                        {tx.type === 'repayment' && <span className="text-[10px] bg-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded font-bold shrink-0">收回代墊</span>}
+                                                                                        {tx.type === 'transfer' && <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-bold shrink-0">轉帳</span>}
+                                                                                    </div>
+                                                                                    <p className="text-sm text-stone-500 truncate flex items-center gap-1.5">
+                                                                                        <span className="font-medium text-stone-400">{accName}</span>
+                                                                                        {tx.note && <span className="text-stone-300">|</span>}
+                                                                                        <span>{tx.note}</span>
+                                                                                    </p>
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="text-right shrink-0 ml-3 flex flex-col items-end justify-center">
+                                                                                {(() => {
+                                                                                    const isForeign = acc && acc.currency !== 'TWD';
+                                                                                    const baseAmt = getBaseAmt(tx, accounts, exchangeRates);
+                                                                                    return (
+                                                                                        <div className="text-right">
+                                                                                            <p className={`text-xl font-black tabular-nums ${amountColor}`}>
+                                                                                                {sign}{safeNum(isForeign ? baseAmt : tx.amount)}
+                                                                                            </p>
+                                                                                            {isForeign && <p className="text-[11px] text-stone-400 mt-0.5 font-bold">({acc.currency} {safeNum(tx.amount)})</p>}
+                                                                                        </div>
+                                                                                    );
+                                                                                })()}
+                                                                                
+                                                                                <div className="mt-1.5 flex items-center justify-end">
+                                                                                    {tx.type === 'repayment' ? (
+                                                                                        <button onClick={(e)=>{e.stopPropagation(); handleUndoRepayment(tx);}} className="text-stone-300 hover:text-blue-500 p-1 transition-colors" title="還原此筆還款">
+                                                                                            <Icon name="rotate-ccw" size={15}/>
+                                                                                        </button>
+                                                                                    ) : (
+                                                                                        <button onClick={(e)=>{e.stopPropagation(); if(confirm('確定要刪除這筆交易嗎？')) deleteData('transactions', tx.id);}} className="text-stone-300 hover:text-rose-500 p-1 transition-colors">
+                                                                                            <Icon name="trash-2" size={15}/>
+                                                                                        </button>
+                                                                                    )}
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                        );
+                                                    });
+                                                })()}
+                                            </React.Fragment>
+                                        }
+                                    </div>
                                 </div>
                             )}
 
@@ -1817,7 +1820,7 @@
                                         const activeAccounts = accounts.filter(a => !a.isArchived);
                                         const archivedAccounts = accounts.filter(a => a.isArchived);
                                         return (
-                                            <>
+                                            <React.Fragment>
                                                 <div className="grid gap-3">
                                                     {activeAccounts.map((acc) => {
                                                         const index = accounts.findIndex(a => a.id === acc.id);
@@ -1904,7 +1907,7 @@
                                                         )}
                                                     </div>
                                                 )}
-                                            </>
+                                            </React.Fragment>
                                         );
                                     })()}
 
@@ -1967,66 +1970,70 @@
                                         </div>
                                         <div className="w-full space-y-3">
                                             <div className="flex justify-between text-xs text-stone-500 px-2 font-bold uppercase tracking-wider"><span>類別</span><span>金額 / 比例</span></div>
-                                            {analysisData.chart.map((d, index) => (
-                                                <div key={d.name} className="space-y-1">
-                                                    <div className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors ${expandedCategory === d.name ? 'bg-stone-100' : 'bg-white hover:bg-stone-50 border border-stone-100'}`} onClick={() => { setExpandedCategory(expandedCategory === d.name ? null : d.name); setExpandedSubCategory(null); }}>
-                                                        <div className="font-black text-stone-400 w-4 text-center">{index + 1}</div>
-                                                        <div className="w-3 h-3 rounded-full shrink-0" style={{backgroundColor: d.color}}></div>
-                                                        <div className="flex-1 font-bold text-stone-700">{d.name}</div>
-                                                        <div className="text-right"><div className={`font-bold tabular-nums ${analysisType==='income'?'text-emerald-600':'text-rose-600'}`}>{safeNum(d.value)}</div><div className="text-xs text-stone-400 font-bold">{Math.round(d.percent)}%</div></div>
-                                                    </div>
-                                                    
-                                                    {expandedCategory === d.name && (
-                                                        <div className="pl-4 pr-2 mt-3 space-y-3 animate-in slide-in-from-top-2 duration-200">
-                                                            {d.subs.map((sub, sIdx) => {
-                                                                const subTxs = d.txs.filter(t => (t.subCategory || '無子類別') === sub.name);
-                                                                const isSubExpanded = expandedSubCategory === sub.name;
-                                                                return (
-                                                                    <div key={sub.name} className="bg-stone-50 rounded-xl border border-stone-100 overflow-hidden shadow-sm transition-all">
-                                                                        <div onClick={(e) => { e.stopPropagation(); setExpandedSubCategory(isSubExpanded ? null : sub.name); }} className={`flex justify-between items-center p-3 cursor-pointer transition-colors ${isSubExpanded ? 'bg-stone-200/50' : 'bg-stone-100/80 hover:bg-stone-200/50'}`}>
-                                                                            <span className="text-stone-700 font-bold text-sm flex items-center gap-2">
-                                                                                <Icon name={isSubExpanded ? "chevron-down" : "chevron-right"} size={16} className="text-stone-400" />
-                                                                                <span className="text-[10px] bg-white border border-stone-200 px-1.5 py-0.5 rounded text-stone-500 font-normal tabular-nums">{index + 1}-{sIdx + 1}</span>
-                                                                                {sub.name}
-                                                                            </span>
-                                                                            <span className="text-stone-800 tabular-nums text-sm font-bold">${safeNum(sub.value)} <span className="text-xs text-stone-400 font-normal">({Math.round(sub.percent)}%)</span></span>
-                                                                        </div>
-                                                                        {isSubExpanded && (
-                                                                            <div className="bg-white border-t border-stone-100 animate-in slide-in-from-top-1 duration-200">
-                                                                                {subTxs.length > 0 ? (
-                                                                                    <>
-                                                                                        {subTxs.map((t) => (
-                                                                                            <div key={t.id} onClick={(e) => { e.stopPropagation(); openTxModal(t.type, t); }} className="flex justify-between items-center py-3 px-4 border-b border-stone-50 last:border-0 hover:bg-stone-50 cursor-pointer group transition-colors">
-                                                                                                <div className="flex items-center gap-3 overflow-hidden">
-                                                                                                    <span className="text-[10px] text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded tabular-nums group-hover:bg-white group-hover:shadow-sm transition-all">{t.date.slice(5)}</span>
-                                                                                                    <span className="text-xs text-stone-600 truncate">{t.note || <span className="text-stone-300 italic">無備註</span>}</span>
-                                                                                                </div>
-                                                                                                {(() => {
-                                                                                                    const acc = accounts.find(a => a.id === t.accountId);
-                                                                                                    const isForeign = acc && acc.currency !== 'TWD';
-                                                                                                    return (
-                                                                                                        <div className="text-right">
-                                                                                                            <div className="tabular-nums font-bold text-xs text-stone-500 group-hover:text-stone-800">
-                                                                                                                ${safeNum(getBaseAmt(t, accounts, exchangeRates))}
-                                                                                                            </div>
-                                                                                                            {isForeign && <div className="text-[9px] text-stone-400 mt-0.5">({acc.currency} {t.amount})</div>}
-                                                                                                        </div>
-                                                                                                    );
-                                                                                                })()}                                                                                            </div>
-                                                                                        ))}
-                                                                                    </>
-                                                                                ) : (
-                                                                                    <div className="text-center py-4 text-[10px] text-stone-300 italic">無近期明細</div>
-                                                                                )}
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                );
-                                                            })}
+                                            {analysisData.chart.map((d, index) => {
+                                                return (
+                                                    <div key={d.name} className="space-y-1">
+                                                        <div className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors ${expandedCategory === d.name ? 'bg-stone-100' : 'bg-white hover:bg-stone-50 border border-stone-100'}`} onClick={() => { setExpandedCategory(expandedCategory === d.name ? null : d.name); setExpandedSubCategory(null); }}>
+                                                            <div className="font-black text-stone-400 w-4 text-center">{index + 1}</div>
+                                                            <div className="w-3 h-3 rounded-full shrink-0" style={{backgroundColor: d.color}}></div>
+                                                            <div className="flex-1 font-bold text-stone-700">{d.name}</div>
+                                                            <div className="text-right"><div className={`font-bold tabular-nums ${analysisType==='income'?'text-emerald-600':'text-rose-600'}`}>{safeNum(d.value)}</div><div className="text-xs text-stone-400 font-bold">{Math.round(d.percent)}%</div></div>
                                                         </div>
-                                                    )}
-                                                </div>
-                                            ))}
+                                                        
+                                                        {expandedCategory === d.name && (
+                                                            <div className="pl-4 pr-2 mt-3 space-y-3 animate-in slide-in-from-top-2 duration-200">
+                                                                {d.subs.map((sub, sIdx) => {
+                                                                    const subTxs = d.txs.filter(t => (t.subCategory || '無子類別') === sub.name);
+                                                                    const isSubExpanded = expandedSubCategory === sub.name;
+                                                                    return (
+                                                                        <div key={sub.name} className="bg-stone-50 rounded-xl border border-stone-100 overflow-hidden shadow-sm transition-all">
+                                                                            <div onClick={(e) => { e.stopPropagation(); setExpandedSubCategory(isSubExpanded ? null : sub.name); }} className={`flex justify-between items-center p-3 cursor-pointer transition-colors ${isSubExpanded ? 'bg-stone-200/50' : 'bg-stone-100/80 hover:bg-stone-200/50'}`}>
+                                                                                <span className="text-stone-700 font-bold text-sm flex items-center gap-2">
+                                                                                    <Icon name={isSubExpanded ? "chevron-down" : "chevron-right"} size={16} className="text-stone-400" />
+                                                                                    <span className="text-[10px] bg-white border border-stone-200 px-1.5 py-0.5 rounded text-stone-500 font-normal tabular-nums">{index + 1}-{sIdx + 1}</span>
+                                                                                    {sub.name}
+                                                                                </span>
+                                                                                <span className="text-stone-800 tabular-nums text-sm font-bold">${safeNum(sub.value)} <span className="text-xs text-stone-400 font-normal">({Math.round(sub.percent)}%)</span></span>
+                                                                            </div>
+                                                                            {isSubExpanded && (
+                                                                                <div className="bg-white border-t border-stone-100 animate-in slide-in-from-top-1 duration-200">
+                                                                                    {subTxs.length > 0 ? (
+                                                                                        <React.Fragment>
+                                                                                            {subTxs.map((t) => {
+                                                                                                return (
+                                                                                                    <div key={t.id} onClick={(e) => { e.stopPropagation(); openTxModal(t.type, t); }} className="flex justify-between items-center py-3 px-4 border-b border-stone-50 last:border-0 hover:bg-stone-50 cursor-pointer group transition-colors">
+                                                                                                        <div className="flex items-center gap-3 overflow-hidden">
+                                                                                                            <span className="text-[10px] text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded tabular-nums group-hover:bg-white group-hover:shadow-sm transition-all">{t.date.slice(5)}</span>
+                                                                                                            <span className="text-xs text-stone-600 truncate">{t.note || <span className="text-stone-300 italic">無備註</span>}</span>
+                                                                                                        </div>
+                                                                                                        {(() => {
+                                                                                                            const acc = accounts.find(a => a.id === t.accountId);
+                                                                                                            const isForeign = acc && acc.currency !== 'TWD';
+                                                                                                            return (
+                                                                                                                <div className="text-right">
+                                                                                                                    <div className="tabular-nums font-bold text-xs text-stone-500 group-hover:text-stone-800">
+                                                                                                                        ${safeNum(getBaseAmt(t, accounts, exchangeRates))}
+                                                                                                                    </div>
+                                                                                                                    {isForeign && <div className="text-[9px] text-stone-400 mt-0.5">({acc.currency} {t.amount})</div>}
+                                                                                                                </div>
+                                                                                                            );
+                                                                                                        })()}                                                                                            </div>
+                                                                                                );
+                                                                                            })}
+                                                                                        </React.Fragment>
+                                                                                    ) : (
+                                                                                        <div className="text-center py-4 text-[10px] text-stone-300 italic">無近期明細</div>
+                                                                                    )}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
                                             {analysisData.total === 0 && <p className="text-center text-stone-400 text-xs py-4">無紀錄</p>}
                                         </div>
                                     </div>
@@ -2078,13 +2085,12 @@
                                                     <p className="font-bold text-lg text-stone-800 tabular-nums">${safeNum(getRemainingDebt(tx.id))}</p>
                                                     <p className="text-xs text-stone-500">{tx.note || '無備註'}</p>
                                                 </div>
-                                                {/* 🔥 新增：右側操作區加入「作廢」按鈕 */}
                                                 <div className="flex flex-col gap-2">
                                                     <button onClick={() => { setSettleTargetTx({ ...tx, amount: getRemainingDebt(tx.id) }); setSettleDate(getLocalToday()); setModal('settle'); }} className="bg-stone-800 text-white px-4 py-2 rounded-lg text-xs font-bold shadow hover:bg-stone-900 transition-colors">收款</button>
                                                     <button 
                                                         onClick={(e) => { 
-                                                            e.stopPropagation(); // 阻止事件干擾
-                                                            handleVoidAdvance(tx); // 呼叫專屬強力刪除函數
+                                                            e.stopPropagation();
+                                                            handleVoidAdvance(tx); 
                                                         }} 
                                                         className="bg-stone-50 text-stone-400 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-50 hover:text-red-500 transition-colors border border-stone-200"
                                                     >
@@ -2190,7 +2196,7 @@
                                             })()}
                                         </div>
                                     ) : (
-                                        <>
+                                        <React.Fragment>
                                         <div className="space-y-3">
                                             {(() => {
                                                 const displayType = txForm.type === 'advance' ? 'expense' : txForm.type;
@@ -2199,7 +2205,7 @@
                                                 if (catList.length === 0) return null;
                                                 
                                                 return (
-                                                    <>
+                                                    <React.Fragment>
                                                         <div className="flex gap-2 items-center">
                                                             <div 
                                                              className="flex-1 flex flex-wrap gap-2 pb-1" 
@@ -2238,7 +2244,7 @@
                                                         {(() => {
                                                             const currentCat = catList.find(c => c.name === txForm.category);
                                                             
-                                                            if (currentCat?.subs?.length > 0) {
+                                                            if (currentCat && currentCat.subs && currentCat.subs.length > 0) {
                                                                 return (
                                                                     <div className="grid grid-cols-3 gap-2 animate-in fade-in slide-in-from-top-2 duration-300">
                                                                         {currentCat.subs.map(s => (
@@ -2279,7 +2285,7 @@
                                                             }
                                                             return null;
                                                         })()}
-                                                    </>
+                                                    </React.Fragment>
                                                 );
                                             })()}
                                         </div>
@@ -2311,13 +2317,13 @@
                                         {Object.values(stats.advanceMap).filter(a => !a.isSettled && a.remaining > 0.1).map(adv => (<option key={adv.id} value={adv.id}>{adv.debtor} (剩餘 ${adv.remaining})</option>))}
                                     </select>
                                 )}
-                                        </>
+                                        </React.Fragment>
                                     )}
                                     <div className="flex items-center gap-2">
                                         <input type="date" className="bg-stone-50 p-3 rounded-lg flex-1 font-bold text-stone-700" value={txForm.date} onChange={e=>setTxForm({...txForm, date:e.target.value})} />
                                         <div className="flex-[2] flex gap-1"><input className="bg-stone-50 p-3 rounded-lg w-full font-bold text-stone-700" placeholder="備註" value={txForm.note} onChange={e=>setTxForm({...txForm, note:e.target.value})} /><button onClick={handleVoiceInput} className="bg-stone-100 p-3 rounded-lg text-stone-500 hover:text-rose-500 hover:bg-rose-50 transition-colors"><Icon name="mic" size={20} /></button></div>
                                     </div>
-                                    {txForm.type === 'expense' && (<div className="space-y-2 pt-2 border-t border-stone-100"><label className="flex items-center justify-between p-2"><span className="text-sm font-bold text-stone-500">使用待收抵扣 (互抵)</span><input type="checkbox" checked={isOffset} onChange={e=>{ setIsOffset(e.target.checked); if(e.target.checked) { setIsAdvanceSplit(false); setInstallment({...installment, enabled: false}); } }} /></label>{!isOffset && (<><label className="flex items-center justify-between p-2"><span className="text-sm font-bold text-stone-500">分期付款</span><input type="checkbox" checked={installment.enabled} onChange={e=>setInstallment({...installment, enabled:e.target.checked})} /></label>{installment.enabled && <select className="w-full bg-white border p-2 rounded" value={installment.periods} onChange={e=>setInstallment({...installment, periods:e.target.value})}><option value="3">3 期</option><option value="6">6 期</option><option value="12">12 期</option></select>}<label className="flex items-center justify-between p-2"><span className="text-sm font-bold text-stone-500">代墊款 (多人)</span><input type="checkbox" checked={isAdvanceSplit} onChange={e=>setIsAdvanceSplit(e.target.checked)} /></label>{isAdvanceSplit && (<div className="p-2 bg-stone-50 rounded space-y-2">{splitData.advances.map((adv, idx) => (<div key={idx} className="flex gap-2"><input placeholder="對象" className="border p-2 rounded w-1/2 text-sm" value={adv.debtor} onChange={e=>updateAdvanceRow(idx, 'debtor', e.target.value)} /><input type="number" placeholder="金額" className="border p-2 rounded w-1/3 text-sm tabular-nums" value={adv.amount} onChange={e=>updateAdvanceRow(idx, 'amount', e.target.value)} />{splitData.advances.length > 1 && <button onClick={()=>removeAdvanceRow(idx)} className="text-red-500"><Icon name="x" size={16}/></button>}</div>))}<button onClick={addAdvanceRow} className="text-xs text-rose-600 font-bold flex items-center gap-1 p-1">+ 新增對象</button><div className="text-xs text-stone-400 text-right mt-1 tabular-nums border-t border-stone-200 pt-1">總代墊: ${splitData.advances.reduce((s,a)=>s+(parseFloat(a.amount)||0),0)} / 自付: ${Math.max(0, (parseFloat(txForm.amount)||0) - splitData.advances.reduce((s,a)=>s+(parseFloat(a.amount)||0),0))}</div></div>)}</>)}</div>)}
+                                    {txForm.type === 'expense' && (<div className="space-y-2 pt-2 border-t border-stone-100"><label className="flex items-center justify-between p-2"><span className="text-sm font-bold text-stone-500">使用待收抵扣 (互抵)</span><input type="checkbox" checked={isOffset} onChange={e=>{ setIsOffset(e.target.checked); if(e.target.checked) { setIsAdvanceSplit(false); setInstallment({...installment, enabled: false}); } }} /></label>{!isOffset && (<React.Fragment><label className="flex items-center justify-between p-2"><span className="text-sm font-bold text-stone-500">分期付款</span><input type="checkbox" checked={installment.enabled} onChange={e=>setInstallment({...installment, enabled:e.target.checked})} /></label>{installment.enabled && <select className="w-full bg-white border p-2 rounded" value={installment.periods} onChange={e=>setInstallment({...installment, periods:e.target.value})}><option value="3">3 期</option><option value="6">6 期</option><option value="12">12 期</option></select>}<label className="flex items-center justify-between p-2"><span className="text-sm font-bold text-stone-500">代墊款 (多人)</span><input type="checkbox" checked={isAdvanceSplit} onChange={e=>setIsAdvanceSplit(e.target.checked)} /></label>{isAdvanceSplit && (<div className="p-2 bg-stone-50 rounded space-y-2">{splitData.advances.map((adv, idx) => (<div key={idx} className="flex gap-2"><input placeholder="對象" className="border p-2 rounded w-1/2 text-sm" value={adv.debtor} onChange={e=>updateAdvanceRow(idx, 'debtor', e.target.value)} /><input type="number" placeholder="金額" className="border p-2 rounded w-1/3 text-sm tabular-nums" value={adv.amount} onChange={e=>updateAdvanceRow(idx, 'amount', e.target.value)} />{splitData.advances.length > 1 && <button onClick={()=>removeAdvanceRow(idx)} className="text-red-500"><Icon name="x" size={16}/></button>}</div>))}<button onClick={addAdvanceRow} className="text-xs text-rose-600 font-bold flex items-center gap-1 p-1">+ 新增對象</button><div className="text-xs text-stone-400 text-right mt-1 tabular-nums border-t border-stone-200 pt-1">總代墊: ${splitData.advances.reduce((s,a)=>s+(parseFloat(a.amount)||0),0)} / 自付: ${Math.max(0, (parseFloat(txForm.amount)||0) - splitData.advances.reduce((s,a)=>s+(parseFloat(a.amount)||0),0))}</div></div>)}</React.Fragment>)}</div>)}
                                     {txForm.type === 'income' && (
                                         <div className="space-y-2 pt-2 border-t border-stone-100">
                                             <label className="flex items-center justify-between p-2 cursor-pointer">
@@ -2447,10 +2453,10 @@
                                                 </select>
 
                                                 {recForm.frequency === 'yearly' && (
-                                                    <>
+                                                    <React.Fragment>
                                                         <input type="number" min="1" max="12" className="w-8 bg-transparent font-bold outline-none tabular-nums text-center border-b border-stone-300 focus:border-rose-500" value={recForm.month} onChange={e=>setRecForm({...recForm, month:parseInt(e.target.value)})}/>
                                                         <span className="text-stone-400 text-xs">月</span>
-                                                    </>
+                                                    </React.Fragment>
                                                 )}
 
                                                 <input type="number" min="1" max="31" className="flex-1 bg-transparent font-bold outline-none tabular-nums text-center" value={recForm.day} onChange={e=>setRecForm({...recForm, day:parseInt(e.target.value)})}/>
@@ -2466,14 +2472,14 @@
                                                     <label className="text-xs font-bold text-stone-500 ml-1 mb-1 block">類別</label>
                                                     <select className="w-full p-3 bg-stone-50 rounded-lg border border-stone-200 text-stone-700 font-bold" value={recForm.category} onChange={e=>setRecForm({...recForm, category:e.target.value, subCategory:''})}>
                                                         <option value="">選擇類別 (預設: 固定收支)</option>
-                                                        {categories[recForm.type]?.map(c => (
+                                                        {(categories[recForm.type] || []).map(c => (
                                                             <option key={c.name} value={c.name}>{c.name}</option>
                                                         ))}
                                                     </select>
                                                 </div>
                                                 
                                                 {(() => {
-                                                    const selectedCat = categories[recForm.type]?.find(c => c.name === recForm.category);
+                                                    const selectedCat = (categories[recForm.type] || []).find(c => c.name === recForm.category);
                                                     if (selectedCat && selectedCat.subs && selectedCat.subs.length > 0) {
                                                         return (
                                                             <div>
@@ -2637,7 +2643,6 @@
                                     {categories[editingCategoryType].map(c=>(
                                         <div key={c.name} className="flex justify-between p-3 bg-stone-50 rounded-lg cursor-pointer hover:bg-stone-100" onClick={()=>{setEditingCategory(c); setModal('editCat')}}>
                                             <span><Icon name={c.icon} size={14} className="inline mr-2"/>{c.name}</span>
-                                            {/* 🔥 這裡就是徹底修復未跳脫的角括號錯誤的地方！ */}
                                             <span className="text-xs text-stone-400">{c.subs.length} 子類別 &gt;</span>
                                         </div>
                                     ))}
