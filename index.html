@@ -96,6 +96,9 @@
     </script>
 
 <script type="text/babel">
+/** @jsx React.createElement */
+/** @jsxFrag React.Fragment */
+
     const { useState, useEffect, useMemo, useRef } = React;
     const Icon = ({ name, size = 24, className = "" }) => {
         const ref = useRef(null);
@@ -149,7 +152,6 @@
         if (val === null || val === undefined) return "0";
         const num = parseFloat(val);
         if (isNaN(num)) return "0";
-        // 🔥 升級：自動判斷！保留最多 2 位小數，解決美金問題，同時擋掉 .592 這種無限小數
         return num.toLocaleString('en-US', { 
             minimumFractionDigits: 0, 
             maximumFractionDigits: 2 
@@ -209,7 +211,6 @@
         const [offsetTargetId, setOffsetTargetId] = useState('');
         const [viewingAccount, setViewingAccount] = useState(null);
         const [accountDetailMonth, setAccountDetailMonth] = useState(getLocalMonth());
-		// 🔥 新增：對帳模式狀態與功能
         const [isReconcileMode, setIsReconcileMode] = useState(false);
 
         const toggleReconcile = async (txId, currentStatus, e) => {
@@ -226,12 +227,10 @@
         const finishReconcile = async () => {
             try {
                 const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
-                const todayStr = getLocalToday(); // 取得今天日期
+                const todayStr = getLocalToday(); 
                 
-                // 1. 寫入雲端資料庫
                 await fbRef.current.updateDoc(fbRef.current.doc(userRef, 'accounts', viewingAccount.id), { lastReconciledDate: todayStr });
                 
-                // 2. 🔥 關鍵修復：手動更新畫面上的暫存變數，讓文字立刻跟著變！
                 setViewingAccount(prev => ({ ...prev, lastReconciledDate: todayStr }));
                 
                 setIsReconcileMode(false);
@@ -387,10 +386,8 @@
 
             const unsubs = [
             fbRef.current.onSnapshot(fbRef.current.collection(userRef, 'transactions'), s => {
-                // 🔥 關鍵修復 1：把 id: d.id 放在最後面，強制覆蓋掉資料庫裡殘留的「幽靈 ID」，還給它們各自真實的靈魂！
                 const docs = s.docs.map(d => ({ ...d.data(), id: d.id }));
                 docs.sort((a, b) => {
-                    // 🔥 修正：加上 String() 確保就算遇到舊資料空值也不會報錯崩潰
                     const dateA = String(a.date || '');
                     const dateB = String(b.date || '');
                     if (dateA !== dateB) return dateB.localeCompare(dateA);
@@ -428,35 +425,34 @@
             return () => unsubs.forEach(u => u());
         }, [user, sdkReady]);
         
-        useEffect(() => {
-            if (!user || !sdkReady) return;
-            const autoFetchRates = async () => {
-                try {
-                    const res = await fetch('https://script.google.com/macros/s/AKfycbxWOtO6F00m_OAu0zc1hzQn4F2BieA1ZXAF7Bv_8i5L5KfeN9kV07C_6JFH9DuJ_M4/exec');
-                    const data = await res.json();
+        const autoFetchRates = async () => {
+            try {
+                const res = await fetch('https://script.google.com/macros/s/AKfycbxWOtO6F00m_OAu0zc1hzQn4F2BieA1ZXAF7Bv_8i5L5KfeN9kV07C_6JFH9DuJ_M4/exec');
+                const data = await res.json();
+                
+                if (!data.error) {
+                    const newRates = { ...exchangeRates };
+                    let hasUpdate = false;
                     
-                    if (!data.error) {
-                        const newRates = { ...exchangeRates };
-                        let hasUpdate = false;
-                        
-                        CURRENCIES.forEach(c => {
-                            if (data[c] && data[c] !== newRates[c]) {
-                                newRates[c] = data[c];
-                                hasUpdate = true;
-                            }
-                        });
-                        
-                        if (hasUpdate) {
-                            setExchangeRates(newRates);
-                            fbRef.current.setDoc(fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid, 'settings', 'rates'), newRates, {merge: true});
+                    CURRENCIES.forEach(c => {
+                        if (data[c] && data[c] !== newRates[c]) {
+                            newRates[c] = data[c];
+                            hasUpdate = true;
                         }
+                    });
+                    
+                    if (hasUpdate && user) {
+                        setExchangeRates(newRates);
+                        fbRef.current.setDoc(fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid, 'settings', 'rates'), newRates, {merge: true});
                     }
-                } catch(e) { 
-                    console.log("自動更新匯率失敗，使用舊有匯率", e); 
                 }
-            };
-            
-            autoFetchRates();
+            } catch(e) { 
+                console.log("自動更新匯率失敗，使用舊有匯率", e); 
+            }
+        };
+
+        useEffect(() => {
+            if (user && sdkReady) autoFetchRates();
         }, [user, sdkReady]); 
             
         const saveData = async (col, data, id=null) => {
@@ -511,17 +507,13 @@
             setSettleTargetTx(null);
         };
         
-		// 🔥 補回被不小心覆蓋掉的還款還原功能
         const handleUndoRepayment = async (tx) => {
             if (!confirm(`確定要作廢/刪除這筆還款紀錄嗎？\n\n(此筆還款將被移除，若原代墊單還在，會自動恢復為未結清)`)) return;
             
             try {
                 const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
-                
-                // 1. 刪除這筆錯誤的還款紀錄
                 await fbRef.current.deleteDoc(fbRef.current.doc(userRef, 'transactions', tx.id));
                 
-                // 2. 把原本對應的代墊單恢復為「未結清」
                 if (tx.relatedTxId) {
                     const relatedRef = fbRef.current.doc(userRef, 'transactions', tx.relatedTxId);
                     const snap = await fbRef.current.getDoc(relatedRef);
@@ -537,13 +529,10 @@
             }
         };
 		
-		
-        // 🔥 新增：專門用來強制超渡幽靈待收的強力作廢函數
         const handleVoidAdvance = async (tx) => {
             if (!confirm(`確定要作廢這筆對「${tx.debtor}」的待收（$${tx.amount}）嗎？\n\n按下確定後，將徹底從資料庫中刪除這筆幽靈帳款！`)) return;
             
             try {
-                // 顯示執行中，避免重複點擊
                 const userRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid);
                 await fbRef.current.deleteDoc(fbRef.current.doc(userRef, 'transactions', tx.id));
                 alert('✅ 幽靈帳款已成功作廢並移除！');
@@ -574,18 +563,14 @@
                 let txTime = tx.createdAt || new Date(tx.date + 'T12:00:00.000Z').toISOString();
                 let targetTime = targetTx.createdAt || new Date(targetTx.date + 'T12:00:00.000Z').toISOString();
 
-                // 🔥 關鍵修復：如果兩筆時間一模一樣（例如匯入的資料），強制拉開 1 秒的差距
                 if (txTime === targetTime) {
                     const baseTime = new Date(txTime).getTime();
                     if (direction === -1) { 
-                        // 往上移 (變新)
                         txTime = new Date(baseTime + 1000).toISOString();
                     } else { 
-                        // 往下移 (變舊)
                         txTime = new Date(baseTime - 1000).toISOString();
                     }
                 } else {
-                    // 正常情況，直接將兩者的時間對調
                     const temp = txTime;
                     txTime = targetTime;
                     targetTime = temp;
@@ -837,7 +822,6 @@
             }
 
             const displayList = [...monthTxs].sort((a, b) => {
-                // 🔥 修正：同樣加上 String() 防護罩
                 const dateA = String(a.date || '');
                 const dateB = String(b.date || '');
                 if (dateA !== dateB) return dateB.localeCompare(dateA);
@@ -858,10 +842,9 @@
         }, [viewingAccount, transactions, accountDetailMonth]);
 
             const handleTxSave = async () => { 
-            // 🔥 新增：在儲存前，自動結算欄位內的數學算式
             let finalAmtStr = String(txForm.amount || '');
             try {
-                const cleanStr = finalAmtStr.replace(/[+\-*/.]+$/, ''); // 去除尾部多餘的符號
+                const cleanStr = finalAmtStr.replace(/[+\-*/.]+$/, ''); 
                 if (/[+\-*/]/.test(cleanStr)) {
                     const result = new Function('return ' + cleanStr)();
                     if (Number.isFinite(result)) finalAmtStr = result;
@@ -884,7 +867,6 @@
                 finalCategory = '轉帳';
             }
             
-            // 🔥 關鍵修復 1：確保舊資料缺少 createdAt 時，自動補上現在時間，避免 undefined 報錯
             const createdAt = (editingTx && editingTx.createdAt) ? editingTx.createdAt : new Date().toISOString();
             
             const selectedAcc = accounts.find(a => a.id === txForm.accountId);
@@ -899,36 +881,30 @@
                 exchangeRate: currentRate
             };
 
-            // 🔥 關鍵修復 2：過濾掉畫面顯示用的暫存變數與 undefined，確保送上雲端的資料絕對乾淨
             Object.keys(base).forEach(key => { if (base[key] === undefined) delete base[key]; });
             delete base.balanceSnapshot;
             delete base.change;
             delete base.displayType;
-            delete base.id; // 🔥 關鍵修復 3：徹底斬草除根！存檔前絕對不准帶入殘留的舊 ID
+            delete base.id; 
             try {
                 if (editingTx) {
-                    // 🔥 新增：如果在「修改」時勾選了多人代墊，執行分裂邏輯
                     if (txForm.type === 'expense' && isAdvanceSplit) {
                         let advTotal = 0;
                         const promises = [];
                         
-                        // 🔥 關鍵修復：把複製體內的舊 ID 徹底抹除，讓 Firebase 自動生成全新的 ID
                         const cleanBase = { ...base };
                         delete cleanBase.id;
 
                         splitData.advances.forEach(a => {
                             if (a.debtor && a.amount) {
-                                // 1. 生成新的獨立代墊單 (使用乾淨的 cleanBase)
                                 promises.push(saveData('transactions', { ...cleanBase, type:'advance', amount: parseFloat(a.amount), debtor: a.debtor, isSettled: false, note: `代墊: ${txForm.note}`, createdAt: new Date().toISOString() }));
                                 advTotal += parseFloat(a.amount);
                             }
                         });
-                        // 2. 把原來的支出扣掉代墊金額，更新原本那筆紀錄
                         const myExp = amt - advTotal;
                         promises.push(saveData('transactions', { ...cleanBase, amount: myExp }, editingTx.id));
                         await Promise.all(promises);
                     } else {
-                        // 正常修改一般的紀錄
                         const cleanBase = { ...base };
                         delete cleanBase.id;
                         await saveData('transactions', cleanBase, editingTx.id);
@@ -972,11 +948,9 @@
                     const gain = amt - principal;
                     const promises = [];
                     
-                    // 1. 產生金流明細
                     if (principal > 0) promises.push(saveData('transactions', { ...base, type: 'transfer', amount: principal, category: '轉帳', accountId: splitData.sourceAccountId, toAccountId: txForm.accountId, note: `投資本金`, createdAt: new Date().toISOString() }));
                     if (gain !== 0) promises.push(saveData('transactions', { ...base, type: 'income', amount: gain, category: txForm.category || '投資', note: `投資獲利`, createdAt: new Date().toISOString() }));
                     
-                    // 2. 🔥 自動扣除持倉與更新市值 (解決資產重複計算)
                     if (splitData.sourceAccountId && splitData.sellSymbol && parseFloat(splitData.sellQty) > 0) {
                         const srcAcc = accounts.find(a => a.id === splitData.sourceAccountId);
                         if (srcAcc && srcAcc.holdings) {
@@ -987,7 +961,6 @@
                                     const oldQty = parseFloat(h.qty) || 1;
                                     const oldPrice = parseFloat(h.price) || 0;
                                     const newQty = Math.max(0, oldQty - sellQty);
-                                    // 依比例扣除市值
                                     const newPrice = newQty > 0 ? (oldPrice * (newQty / oldQty)).toFixed(2) : 0;
                                     updatedMarketValue += parseFloat(newPrice);
                                     return { ...h, qty: newQty.toString(), price: newPrice.toString() };
@@ -996,7 +969,6 @@
                                 return h;
                             });
                             
-                            // 寫入更新帳戶
                             const accRef = fbRef.current.doc(dbRef.current, 'artifacts', appId, 'users', user.uid, 'accounts', srcAcc.id);
                             promises.push(fbRef.current.updateDoc(accRef, {
                                 holdings: updatedHoldings,
@@ -1149,7 +1121,6 @@
         const handleRetireSubmit = (e) => { e.preventDefault(); saveData('settings', retireForm, 'retirement'); setModal(null); };
 
         const openTxModal = (type = 'expense', existingTx = null) => {
-            // 🔥 新增防呆鎖：禁止直接編輯代墊與還款紀錄
             if (existingTx && (existingTx.type === 'repayment' || existingTx.type === 'advance')) {
                 alert('⚠️ 系統保護提示\n\n代墊與還款紀錄具有連動計算邏輯，不可直接編輯。\n若金額有誤，請點擊右下角「垃圾桶」刪除，或使用「還原」功能後再重新記一筆，以確保帳目準確！');
                 return;
@@ -1385,7 +1356,6 @@
                                         <div className="bg-white/10 p-2 rounded"><p className="text-stone-400 mb-1">轉帳</p><p className={`font-bold ${accountDetailData && accountDetailData.stats.mTrans >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{accountDetailData && accountDetailData.stats.mTrans > 0 ? '+' : ''}{safeNum(accountDetailData && accountDetailData.stats.mTrans)}</p></div>
                                     </div>
                                     
-                                    {/* 🔥 新增對帳狀態列 🔥 貼在這裡！剛好在網格的下面 */}
                                     <div className="mt-4 pt-4 border-t border-white/10 flex justify-between items-center">
                                         <div className="text-xs text-white/60 flex items-center gap-1">
                                             <Icon name="calendar-check" size={14}/> 最後對帳: {viewingAccount.lastReconciledDate || '尚未對帳'}
@@ -1422,7 +1392,6 @@
                                                                 <div key={tx.id} onClick={() => openTxModal(tx.type, tx)} className={`p-3 flex justify-between items-center cursor-pointer hover:bg-stone-50 group ${idx !== group.txs.length - 1 ? 'border-b border-stone-100' : ''}`}>
                                                                     <div className="flex items-center gap-3 overflow-hidden">
                                                                         
-                                                                        {/* 🔥 功能 1：對帳模式專用的勾選框 (有獨立的點擊事件 toggleReconcile) */}
                                                                         {isReconcileMode && (
                                                                             <div 
                                                                                 onClick={(e) => toggleReconcile(tx.id, tx.isReconciled, e)}
@@ -1432,7 +1401,6 @@
                                                                             </div>
                                                                         )}
                                                                  
-                                                                        {/* 🔥 功能 2：交易類別的圖示 (含已對帳的小綠勾) */}
                                                                         <div className={`p-2 rounded-lg shrink-0 relative ${tx.displayType==='income' || tx.type==='repayment' ?'bg-emerald-100 text-emerald-600': tx.displayType==='expense'?'bg-rose-100 text-rose-600':'bg-stone-100 text-stone-600'}`}>
                                                                             <Icon name={getCategoryIcon(tx.category, tx.type)} size={18}/>
                                                                             {!isReconcileMode && tx.isReconciled && (
@@ -1513,10 +1481,8 @@
                                         <div className="text-center font-bold text-stone-800 text-lg">{currentLedgerMonth.replace('-','年 ')}月</div>
                                         <button onClick={()=>changeMonthStep(1)} className="p-2 hover:bg-stone-50 rounded-lg text-stone-400"><Icon name="chevron-right"/></button>
                                     </div>
-                                    {/* 🔥 智慧動態卡片：根據按鈕自動切換內容與顏色 (跨月預算完美整合版) */}
                                     {(() => {
                                         if (homeFilter === 'all' || homeFilter === 'inout') {
-                                            // 🔥 1. 抓取「上個月」的總收入
                                             const [y, m] = currentLedgerMonth.split('-').map(Number);
                                             const lmDate = new Date(y, m - 2, 1);
                                             const lmStr = `${lmDate.getFullYear()}-${String(lmDate.getMonth() + 1).padStart(2, '0')}`;
@@ -1528,10 +1494,8 @@
                                                 }
                                             });
 
-                                            // 🔥 2. 定義「可用額度」：優先用上月收入，若沒有則用系統設定的月預算
                                             const baseQuota = lastMonthInc > 0 ? lastMonthInc : monthlyBudget;
                                             
-                                            // 🔥 3. 計算真正意義上的「安全可用餘額」
                                             const realRemaining = baseQuota - stats.exp;
                                             
                                             const isWarning = realRemaining < 0;
@@ -1599,18 +1563,16 @@
                                             );
                                         }
                                     })()}
-									{/* 🔥 新增：明細切換按鈕 */}
                                     <div className="flex bg-stone-200/60 p-1 rounded-xl mb-4">
                                         <button onClick={() => setHomeFilter('all')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${homeFilter === 'all' ? 'bg-white text-stone-800 shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}>全部</button>
                                         <button onClick={() => setHomeFilter('inout')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${homeFilter === 'inout' ? 'bg-white text-stone-800 shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}>收支</button>
                                         <button onClick={() => setHomeFilter('invest')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${homeFilter === 'invest' ? 'bg-white text-stone-800 shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}>投資</button>
                                         <button onClick={() => setHomeFilter('transfer')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${homeFilter === 'transfer' ? 'bg-white text-stone-800 shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}>轉帳</button>
                                     </div>
-									
+                                    
                                     <div className="space-y-4">
                                         {groupedTransactions.length === 0 ? <div className="text-center py-16 text-stone-400 text-sm border-2 border-dashed border-stone-200 rounded-xl bg-white">本月尚無紀錄</div> : 
                                             groupedTransactions.map(([date, txs]) => {
-                                                // 計算每日收支總計
                                                 let dailyExp = 0;
                                                 let dailyInc = 0;
                                                 txs.forEach(t => {
@@ -1621,7 +1583,6 @@
 
                                                 return (
                                                 <div key={date} className="animate-in slide-in-from-bottom mb-6">
-                                                    {/* 每日標題與總計 */}
                                                     <div className="flex justify-between items-end mb-2 px-2">
                                                         <div className="flex items-baseline gap-2">
                                                             <span className="text-xl font-black text-stone-800 tabular-nums">{date.replace(/-/g, '/')}</span>
@@ -1633,7 +1594,6 @@
                                                         </div>
                                                     </div>
                                                     
-                                                    {/* 明細清單 (無邊框卡片，純白底) */}
                                                     <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
                                                         {txs.map((tx, idx) => {
                                                             const acc = accounts.find(a => a.id === tx.accountId);
@@ -1643,7 +1603,6 @@
                                                                 accName += ` ➝ ${toAcc ? toAcc.name : '未知'}`;
                                                             }
                                                             
-                                                            // 判斷金額顏色與正負號
                                                             let amountColor = "text-stone-800";
                                                             let sign = "";
                                                             let iconBg = "bg-stone-100 text-stone-500";
@@ -1661,23 +1620,19 @@
                                                             return (
                                                                 <div key={tx.id} onClick={() => openTxModal(tx.type, tx)} className={`p-4 flex justify-between items-center cursor-pointer hover:bg-stone-50 transition-colors ${idx !== txs.length - 1 ? 'border-b border-stone-100' : ''}`}>
                                                                     <div className="flex items-center gap-4 overflow-hidden">
-                                                                        {/* 圖示放大，底色變淡 */}
                                                                         <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${iconBg}`}>
                                                                             <Icon name={getCategoryIcon(tx.category, tx.type)} size={22}/>
                                                                         </div>
                                                                         <div className="min-w-0">
                                                                             <div className="flex items-center gap-2 mb-0.5">
-                                                                                {/* 🔥 分類大字體 + 補回子類別 */}
                                                                                 <p className="font-bold text-lg text-stone-800 truncate">
                                                                                     {tx.type === 'advance' ? `代墊: ${tx.debtor}` : (tx.category || '未分類')}
                                                                                     {tx.subCategory && <span className="text-sm font-bold text-stone-400 ml-1.5">({tx.subCategory})</span>}
                                                                                 </p>
-                                                                                {/* 清楚的小標籤區分特殊類型 */}
                                                                                 {tx.type === 'advance' && <span className="text-[10px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded font-bold shrink-0">代墊</span>}
                                                                                 {tx.type === 'repayment' && <span className="text-[10px] bg-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded font-bold shrink-0">收回代墊</span>}
                                                                                 {tx.type === 'transfer' && <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-bold shrink-0">轉帳</span>}
                                                                             </div>
-                                                                            {/* 備註與帳戶整合在底下，字體縮小變灰 */}
                                                                             <p className="text-sm text-stone-500 truncate flex items-center gap-1.5">
                                                                                 <span className="font-medium text-stone-400">{accName}</span>
                                                                                 {tx.note && <span className="text-stone-300">|</span>}
@@ -1691,7 +1646,6 @@
                                                                             const baseAmt = getBaseAmt(tx, accounts, exchangeRates);
                                                                             return (
                                                                                 <div className="text-right">
-                                                                                    {/* 金額大字體，使用專屬顏色 */}
                                                                                     <p className={`text-xl font-black tabular-nums ${amountColor}`}>
                                                                                         {sign}{safeNum(isForeign ? baseAmt : tx.amount)}
                                                                                     </p>
@@ -1700,7 +1654,6 @@
                                                                             );
                                                                         })()}
                                                                         
-                                                                        {/* 🔥 補回：被遺忘的刪除與還原按鈕 */}
                                                                         <div className="mt-1.5 flex items-center justify-end">
                                                                             {tx.type === 'repayment' ? (
                                                                                 <button onClick={(e)=>{e.stopPropagation(); handleUndoRepayment(tx);}} className="text-stone-300 hover:text-blue-500 p-1 transition-colors" title="還原此筆還款">
@@ -1718,10 +1671,9 @@
                                                         })}
                                                     </div>
                                                 </div>
-                                                );
-                                            })
-                                        }
-                                    </div>
+                                            ));
+                                        })()
+                                    }
                                 </div>
                             )}
 
@@ -1738,7 +1690,6 @@
                                         <div className={`mt-3 p-2 rounded-lg bg-white/10 text-xs flex items-start gap-2 ${retirementInsight.color}`}><Icon name={retirementInsight.icon} size={14} className="mt-0.5"/><span>{retirementInsight.text}</span></div>
                                     </div>
                                     
-                                    {/* 🔥 已修復：AI 專屬財務管家 (含自訂帳戶防衛邏輯) */}
                                     {(() => {
                                         const getRate = (accId) => {
                                             const acc = accounts.find(a => a.id === accId);
@@ -1748,7 +1699,6 @@
                                         const today = new Date();
                                         const currentMonth = today.getMonth() + 1; 
 
-                                        // 1. 計算本月「尚未發生」的固定扣款
                                         const thisMonthRemainingFixedCost = recurring.reduce((sum, r) => {
                                             if ((r.type !== 'expense' && r.type !== 'transfer') || (r.endDate && r.endDate < getLocalToday())) return sum;
                                             if (r.lastCreatedMonth === getLocalMonth()) return sum; 
@@ -1757,12 +1707,9 @@
                                             return sum + (parseFloat(r.amount) * rate);
                                         }, 0);
 
-                                        // 2. 🔥 新增：精準計算「本期已出帳卡費」
                                         const calculateBilledDebt = (acc) => {
-                                            // 取得當前總負債 (正數)
                                             const currentTotalDebt = Math.max(0, -(stats.bals[acc.id] || 0));
                                             
-                                            // 找出上一次結帳日
                                             const cDay = parseInt(acc.closingDay || 27);
                                             const todayObj = new Date();
                                             let lastClosingDate;
@@ -1773,27 +1720,22 @@
                                             }
                                             const lastClosingDateStr = `${lastClosingDate.getFullYear()}-${String(lastClosingDate.getMonth()+1).padStart(2,'0')}-${String(lastClosingDate.getDate()).padStart(2,'0')}`;
                                             
-                                            // 計算結帳日之後「新增」的未出帳消費
                                             let unbilledNewDebt = 0;
                                             transactions.forEach(t => {
                                                 if (t.date > lastClosingDateStr && t.accountId === acc.id) {
-                                                    // 只計算增加負債的交易 (支出、代墊、轉出)
                                                     if (t.type === 'expense' || t.type === 'advance' || t.type === 'transfer') {
                                                         unbilledNewDebt += parseFloat(t.amount) || 0;
                                                     }
                                                 }
                                             });
                                             
-                                            // 本期應繳 = 總負債 - 未出帳消費 (若已繳清則為 0)
                                             return Math.max(0, currentTotalDebt - unbilledNewDebt);
                                         };
 
-                                        // 3. 輔助函數：取得銀行餘額與「本期」卡費
                                         const getBankBal = (keyword, exclude = null) => accounts.filter(a => a.type === 'bank' && a.name.includes(keyword) && (!exclude || !a.name.includes(exclude)) && !a.isArchived).reduce((s, a) => s + (stats.bals[a.id] || 0) * getRate(a.id), 0);
                                         const getCardBilledDebt = (keyword) => accounts.filter(a => a.type === 'credit' && a.name.includes(keyword) && !a.isArchived).reduce((s, a) => s + calculateBilledDebt(a) * getRate(a.id), 0);
                                         const getOtherCardBilledDebt = () => accounts.filter(a => a.type === 'credit' && !a.name.includes('台新') && !a.name.includes('匯豐') && !a.name.includes('大戶') && !a.isArchived).reduce((s, a) => s + calculateBilledDebt(a) * getRate(a.id), 0);
 
-                                        // 4. 執行卡費檢查邏輯 (比較餘額與本期卡費)
                                         const tsBank = getBankBal('台新');
                                         const tsDebt = getCardBilledDebt('台新');
                                         
@@ -1803,8 +1745,8 @@
                                         const dawhoBank = getBankBal('大戶');
                                         const dawhoDebt = getCardBilledDebt('大戶');
                                         
-                                        const spBank = getBankBal('永豐', '大戶'); // 永豐但排除大戶
-                                        const otherDebt = getOtherCardBilledDebt(); // 剩下的所有信用卡
+                                        const spBank = getBankBal('永豐', '大戶');
+                                        const otherDebt = getOtherCardBilledDebt(); 
 
                                         const cardWarnings = [];
                                         if (tsDebt > 0 && tsBank < tsDebt) cardWarnings.push(`台新缺 $${safeNum(tsDebt - tsBank)}`);
@@ -1812,10 +1754,8 @@
                                         if (dawhoDebt > 0 && dawhoBank < dawhoDebt) cardWarnings.push(`大戶缺 $${safeNum(dawhoDebt - dawhoBank)}`);
                                         if (otherDebt > 0 && spBank < otherDebt) cardWarnings.push(`永豐缺 $${safeNum(otherDebt - spBank)}`);
 
-                                        // 5. 月底生存紅線：大戶與永豐總和
                                         const mainPower = dawhoBank + spBank; 
 
-                                        // 6. 抓取「上個月」的總收入作為基準
                                         const lastMonthIncome = trendData[4] ? trendData[4].income : 0;
                                         const estimatedCurrentIncome = Math.max(stats.inc, lastMonthIncome);
                                         
@@ -1830,7 +1770,6 @@
                                                 return sum + (rawBal * rate);
                                             }, 0);
 
-                                        // --- 判斷要顯示哪一種層級的顧問訊息 ---
                                         let aiMessage = "";
                                         let aiIcon = "bot";
                                         let aiColor = "bg-sky-50 text-sky-600 border-sky-100";
@@ -2158,7 +2097,7 @@
                                     </div>
                                 </div>
                             )}
-							
+                            
                         </main>
                         
                         <nav className="fixed bottom-0 w-full bg-white border-t border-stone-200 px-6 py-3 flex justify-between z-[100] pb-safe max-w-xl mx-auto left-0 right-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
